@@ -10,6 +10,8 @@
 
 ```sh
 pnpm benchmarks:list
+pnpm examples:list
+pnpm examples:list -- --benchmark docs_single_file_edit
 pnpm candidates:validate -- --candidate examples/candidates/docs_single_file_edit.pass.json --benchmark docs_single_file_edit
 pnpm candidates:evaluate -- --candidate examples/candidates/docs_single_file_edit.pass.json --benchmark docs_single_file_edit
 ```
