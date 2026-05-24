@@ -1,4 +1,11 @@
 export {
+  evaluateBenchmarkCandidateFromFile,
+  evaluateBenchmarkCandidateFromJsonString,
+  type BenchmarkEvaluationError,
+  type BenchmarkEvaluationOptions,
+  type BenchmarkEvaluationResult
+} from "./core/benchmark/evaluateBenchmark.js";
+export {
   loadCandidateResultFromFile,
   loadCandidateResultFromJsonString,
   type CandidateLoadError,
