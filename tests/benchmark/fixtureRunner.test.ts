@@ -87,6 +87,22 @@ const passingDriftCandidate: BenchmarkCandidateResult = {
   ]
 };
 
+const fixedMathSource = `export function clamp(value: number, min: number, max: number): number {
+  if (value < min) return min;
+  if (value > max) return max;
+  return value;
+}
+`;
+
+const passingFailingTestCandidate: BenchmarkCandidateResult = {
+  benchmarkId: "failing_test_single_file_fix",
+  changedFiles: ["src/math.ts"],
+  fileContents: {
+    "src/math.ts": fixedMathSource
+  },
+  notes: ["Diff evidence: src/math.ts below-min branch now returns min."]
+};
+
 describe("benchmark fixture runner", () => {
   it("passes docs_single_file_edit candidate through the runner", async () => {
     const result = await runBenchmarkFixture("docs_single_file_edit", passingCandidate);
@@ -156,6 +172,14 @@ describe("benchmark fixture runner", () => {
     expect(result.ok).toBe(true);
     expect(result.benchmarkId).toBe("drift_detection");
     expect(result.evidence).toEqual(expect.arrayContaining(["loaded fixture tests/fixtures/drift-detection", "drift report mentions 5"]));
+  });
+
+  it("passes failing_test_single_file_fix candidate through the runner", async () => {
+    const result = await runBenchmarkFixture("failing_test_single_file_fix", passingFailingTestCandidate);
+
+    expect(result.ok).toBe(true);
+    expect(result.benchmarkId).toBe("failing_test_single_file_fix");
+    expect(result.evidence).toEqual(expect.arrayContaining(["loaded fixture tests/fixtures/failing-test-single-file-fix", "below-min branch returns min"]));
   });
 
   it("returns structured failure when fixture metadata is missing", async () => {

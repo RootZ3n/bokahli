@@ -5,6 +5,7 @@ import { verifyConfigSingleFileEdit } from "./configSingleFileEditVerifier.js";
 import { verifyContextRetrievalOnly } from "./contextRetrievalOnlyVerifier.js";
 import { verifyDriftDetection } from "./driftDetectionVerifier.js";
 import { verifyDocsSingleFileEdit } from "./docsSingleFileEditVerifier.js";
+import { verifyFailingTestSingleFileFix } from "./failingTestSingleFileFixVerifier.js";
 import { verifyScopeViolationDetection } from "./scopeViolationDetectionVerifier.js";
 import {
   benchmarkFixtures,
@@ -35,6 +36,7 @@ const defaultVerifiers: Readonly<Record<string, BenchmarkVerifier>> = {
   contextRetrievalOnlyVerifier: verifyContextRetrievalOnly,
   driftDetectionVerifier: verifyDriftDetection,
   docsSingleFileEditVerifier: verifyDocsSingleFileEdit,
+  failingTestSingleFileFixVerifier: verifyFailingTestSingleFileFix,
   scopeViolationDetectionVerifier: verifyScopeViolationDetection
 };
 

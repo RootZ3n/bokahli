@@ -97,10 +97,19 @@ export const driftDetectionFixture: BenchmarkFixtureMetadata = {
   verifierId: "driftDetectionVerifier"
 };
 
+export const failingTestSingleFileFixFixture: BenchmarkFixtureMetadata = {
+  benchmarkId: "failing_test_single_file_fix",
+  fixturePath: "tests/fixtures/failing-test-single-file-fix",
+  task: "Fix the failing clamp test by changing src/math.ts implementation only.",
+  allowedFiles: ["README.md", "package.json", "src/math.ts", "tests/math.test.ts"],
+  verifierId: "failingTestSingleFileFixVerifier"
+};
+
 export const benchmarkFixtures = [
   docsSingleFileEditFixture,
   configSingleFileEditFixture,
   contextRetrievalOnlyFixture,
   scopeViolationDetectionFixture,
-  driftDetectionFixture
+  driftDetectionFixture,
+  failingTestSingleFileFixFixture
 ] as const satisfies readonly BenchmarkFixtureMetadata[];

@@ -100,6 +100,22 @@ const passingDriftCandidate = {
   ]
 };
 
+const fixedMathSource = `export function clamp(value: number, min: number, max: number): number {
+  if (value < min) return min;
+  if (value > max) return max;
+  return value;
+}
+`;
+
+const passingFailingTestCandidate = {
+  benchmarkId: "failing_test_single_file_fix",
+  changedFiles: ["src/math.ts"],
+  fileContents: {
+    "src/math.ts": fixedMathSource
+  },
+  notes: ["Diff evidence: src/math.ts below-min branch now returns min."]
+};
+
 async function createTempDir(): Promise<string> {
   return mkdtemp(path.join(tmpdir(), "scintilla-evaluate-benchmark-"));
 }
@@ -243,6 +259,16 @@ describe("benchmark evaluation API", () => {
     if (result.ok) {
       expect(result.verification.passedChecks).toContain("drift.detected is true");
       expect(result.verification.passedChecks).toContain("drift report mentions value 5");
+    }
+  });
+
+  it("returns ok:true for failing_test_single_file_fix through JSON string evaluation", async () => {
+    const result = await evaluateBenchmarkCandidateFromJsonString("failing_test_single_file_fix", JSON.stringify(passingFailingTestCandidate));
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.verification.passedChecks).toContain("below-min branch returns min");
+      expect(result.verification.passedChecks).toContain("changedFiles contains only src/math.ts");
     }
   });
 

@@ -8,6 +8,7 @@ export {
 export { verifyConfigSingleFileEdit } from "./core/benchmark/configSingleFileEditVerifier.js";
 export { verifyContextRetrievalOnly } from "./core/benchmark/contextRetrievalOnlyVerifier.js";
 export { verifyDriftDetection } from "./core/benchmark/driftDetectionVerifier.js";
+export { verifyFailingTestSingleFileFix } from "./core/benchmark/failingTestSingleFileFixVerifier.js";
 export { verifyScopeViolationDetection } from "./core/benchmark/scopeViolationDetectionVerifier.js";
 export {
   loadCandidateResultFromFile,
@@ -29,6 +30,7 @@ export {
   contextRetrievalOnlyFixture,
   driftDetectionFixture,
   docsSingleFileEditFixture,
+  failingTestSingleFileFixFixture,
   scopeViolationDetectionFixture,
   type BenchmarkAuditVerdict,
   type BenchmarkCandidateAudit,
