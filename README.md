@@ -40,4 +40,4 @@ These commands make no model calls, no Ollama calls, perform no candidate shell 
 
 ## Example candidate files
 
-Passing candidate JSON templates for every executable benchmark live in `examples/candidates/`. Start with `examples/candidates/docs_single_file_edit.pass.json` for the simplest edit benchmark, or use the matching `<benchmarkId>.pass.json` file as the payload shape for a specific verifier.
+Passing candidate JSON templates for every executable benchmark live in `examples/candidates/`. Start with `examples/candidates/docs_single_file_edit.pass.json` for the simplest edit benchmark, or use the matching `<benchmarkId>.pass.json` file as the payload shape for a specific verifier. See `examples/README.md` for field shapes and benchmark-specific guidance.
