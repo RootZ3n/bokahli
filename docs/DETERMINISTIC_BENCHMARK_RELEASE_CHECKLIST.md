@@ -2,7 +2,7 @@
 
 ## Scope
 
-This checklist covers Scintilla's deterministic benchmark plumbing:
+This checklist covers Scintilla's deterministic benchmark plumbing plus Ariadne read-only context tooling:
 
 - benchmark registry
 - local fixtures
@@ -11,6 +11,7 @@ This checklist covers Scintilla's deterministic benchmark plumbing:
 - evaluation API
 - CLI listing, validation, evaluation, and examples commands
 - example candidate manifest
+- Ariadne repo scan, context packet, and context packet example listing commands
 
 It does not certify local model generation, Ollama integration, orchestration, Aedis integration, or real repository editing.
 
@@ -51,6 +52,12 @@ pnpm examples:list -- --benchmark docs_single_file_edit
 pnpm candidates:validate -- --candidate examples/candidates/docs_single_file_edit.pass.json --benchmark docs_single_file_edit
 pnpm candidates:evaluate -- --candidate examples/candidates/docs_single_file_edit.pass.json --benchmark docs_single_file_edit
 pnpm candidates:evaluate -- --candidate examples/candidates/docs_single_file_edit.fail.json --benchmark docs_single_file_edit
+pnpm ariadne:scan -- --repo tests/fixtures/simple-ts-repo
+pnpm ariadne:scan -- --repo tests/fixtures/simple-ts-repo --json
+pnpm ariadne:packet -- --repo tests/fixtures/simple-ts-repo --task-type patch_one_file --goal "Update README usage text" --allowed-file README.md --select README.md --verification "pnpm test" --json
+pnpm context-packets:list
+pnpm context-packets:list -- --json
+pnpm context-packets:list -- --id readme_patch_one_file
 ```
 
 The final command is expected to exit `1` because `docs_single_file_edit.fail.json` has a valid candidate shape but fails deterministic verification.
@@ -88,6 +95,8 @@ In normal text mode, `pnpm benchmark:release-smoke` prints exactly one final sta
 SCINTILLA_BENCHMARK_PLUMBING_STATUS=BENCHMARK_PLUMBING_READY
 ```
 
+The status variable and `BENCHMARK_PLUMBING_READY` wording remain unchanged for compatibility, even though the smoke script now also covers Ariadne read-only context tooling.
+
 On deterministic smoke failure, the final line is:
 
 ```txt
@@ -124,7 +133,7 @@ pnpm benchmark:release-smoke -- --json
 
 The `Benchmark Release Smoke` GitHub Actions workflow runs deterministic benchmark plumbing only. It installs dependencies, runs `pnpm benchmark:release-smoke`, asserts the stable `SCINTILLA_BENCHMARK_PLUMBING_STATUS=BENCHMARK_PLUMBING_READY` line, writes `benchmark-release-smoke.json`, and archives the smoke reports as the `benchmark-release-smoke` artifact.
 
-The workflow does not add model calls, Ollama setup, provider secrets, orchestration, benchmark generation, or real repository editing.
+The workflow does not add model calls, Ollama setup, provider secrets, orchestration, benchmark generation, or real repository editing. Ariadne checks are read-only context tooling checks only.
 
 ## Manifest Consistency Checks
 

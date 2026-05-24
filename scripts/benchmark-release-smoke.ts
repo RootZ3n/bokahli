@@ -136,6 +136,58 @@ export function getBenchmarkReleaseSmokeCommands(): readonly SmokeCommand[] {
         "docs_single_file_edit"
       ],
       expectedExitCode: 1
+    },
+    {
+      id: "ariadne-scan-simple",
+      command: "pnpm",
+      args: ["ariadne:scan", "--", "--repo", "tests/fixtures/simple-ts-repo"],
+      expectedExitCode: 0
+    },
+    {
+      id: "ariadne-scan-simple-json",
+      command: "pnpm",
+      args: ["ariadne:scan", "--", "--repo", "tests/fixtures/simple-ts-repo", "--json"],
+      expectedExitCode: 0
+    },
+    {
+      id: "ariadne-packet-readme-json",
+      command: "pnpm",
+      args: [
+        "ariadne:packet",
+        "--",
+        "--repo",
+        "tests/fixtures/simple-ts-repo",
+        "--task-type",
+        "patch_one_file",
+        "--goal",
+        "Update README usage text",
+        "--allowed-file",
+        "README.md",
+        "--select",
+        "README.md",
+        "--verification",
+        "pnpm test",
+        "--json"
+      ],
+      expectedExitCode: 0
+    },
+    {
+      id: "context-packets-list",
+      command: "pnpm",
+      args: ["context-packets:list"],
+      expectedExitCode: 0
+    },
+    {
+      id: "context-packets-list-json",
+      command: "pnpm",
+      args: ["context-packets:list", "--", "--json"],
+      expectedExitCode: 0
+    },
+    {
+      id: "context-packets-list-readme",
+      command: "pnpm",
+      args: ["context-packets:list", "--", "--id", "readme_patch_one_file"],
+      expectedExitCode: 0
     }
   ];
 }
