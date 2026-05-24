@@ -124,3 +124,7 @@ Files ending in `.pass.json` should validate and pass evaluation. `examples/cand
 ## Non-Goals
 
 These examples are not model outputs yet. They do not prove a model can generate them. They define payload contracts for future worker and Aedis integration.
+
+## Ariadne Context Packet Examples
+
+`examples/context-packets/` contains checked-in context packet JSON templates generated from `tests/fixtures/simple-ts-repo`. These packets demonstrate the shape produced by `pnpm ariadne:packet` for future small-model worker context handoff. They are static examples, not model outputs, and they do not execute verification commands.

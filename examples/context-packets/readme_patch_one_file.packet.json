@@ -1,0 +1,74 @@
+{
+  "generatedAt": "2026-05-24T00:00:00.000Z",
+  "repoRoot": "tests/fixtures/simple-ts-repo",
+  "task": {
+    "taskType": "patch_one_file",
+    "goal": "Update README usage text",
+    "allowedFiles": [
+      "README.md"
+    ],
+    "forbiddenFiles": [],
+    "verificationRequired": [
+      "pnpm test"
+    ]
+  },
+  "repoSummary": {
+    "packageManager": "pnpm",
+    "scripts": {
+      "build": "tsc -p tsconfig.json",
+      "test": "vitest run"
+    },
+    "totals": {
+      "files": 5,
+      "source": 2,
+      "tests": 0,
+      "docs": 1,
+      "config": 2,
+      "other": 0,
+      "ignoredDirs": 8,
+      "totalBytes": 396
+    },
+    "sections": {
+      "source": [
+        "src/index.ts",
+        "src/util.ts"
+      ],
+      "tests": [],
+      "docs": [
+        "README.md"
+      ],
+      "config": [
+        "config.json",
+        "package.json"
+      ],
+      "other": []
+    }
+  },
+  "selectedPreviews": [
+    {
+      "path": "README.md",
+      "extension": ".md",
+      "sizeBytes": 64,
+      "bytesRead": 64,
+      "truncated": false,
+      "text": "# Simple TS Repo\n\nFixture repository for Ariadne scanner tests.\n"
+    }
+  ],
+  "skippedPreviews": [],
+  "constraints": {
+    "allowedFiles": [
+      "README.md"
+    ],
+    "forbiddenFiles": [],
+    "noUnlistedFiles": true,
+    "workerAuthority": "propose_only",
+    "verifierDeterminesTruth": true
+  },
+  "truncation": {
+    "anyFileTruncated": false,
+    "totalPreviewBytes": 64,
+    "maxTotalPreviewBytes": 32768,
+    "packetTruncated": false
+  },
+  "warnings": []
+}

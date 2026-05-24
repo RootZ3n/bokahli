@@ -1,0 +1,74 @@
+{
+  "generatedAt": "2026-05-24T00:00:00.000Z",
+  "repoRoot": "tests/fixtures/simple-ts-repo",
+  "task": {
+    "taskType": "patch_one_file",
+    "goal": "Update config metadata",
+    "allowedFiles": [
+      "config.json"
+    ],
+    "forbiddenFiles": [],
+    "verificationRequired": [
+      "pnpm test"
+    ]
+  },
+  "repoSummary": {
+    "packageManager": "pnpm",
+    "scripts": {
+      "build": "tsc -p tsconfig.json",
+      "test": "vitest run"
+    },
+    "totals": {
+      "files": 5,
+      "source": 2,
+      "tests": 0,
+      "docs": 1,
+      "config": 2,
+      "other": 0,
+      "ignoredDirs": 8,
+      "totalBytes": 396
+    },
+    "sections": {
+      "source": [
+        "src/index.ts",
+        "src/util.ts"
+      ],
+      "tests": [],
+      "docs": [
+        "README.md"
+      ],
+      "config": [
+        "config.json",
+        "package.json"
+      ],
+      "other": []
+    }
+  },
+  "selectedPreviews": [
+    {
+      "path": "config.json",
+      "extension": ".json",
+      "sizeBytes": 22,
+      "bytesRead": 22,
+      "truncated": false,
+      "text": "{\n  \"enabled\": true\n}\n"
+    }
+  ],
+  "skippedPreviews": [],
+  "constraints": {
+    "allowedFiles": [
+      "config.json"
+    ],
+    "forbiddenFiles": [],
+    "noUnlistedFiles": true,
+    "workerAuthority": "propose_only",
+    "verifierDeterminesTruth": true
+  },
+  "truncation": {
+    "anyFileTruncated": false,
+    "totalPreviewBytes": 22,
+    "maxTotalPreviewBytes": 32768,
+    "packetTruncated": false
+  },
+  "warnings": []
+}
