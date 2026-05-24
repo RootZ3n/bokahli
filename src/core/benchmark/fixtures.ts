@@ -31,4 +31,13 @@ export const docsSingleFileEditFixture: BenchmarkFixtureMetadata = {
   verifierId: "docsSingleFileEditVerifier"
 };
 
-export const benchmarkFixtures = [docsSingleFileEditFixture] as const satisfies readonly BenchmarkFixtureMetadata[];
+export const configSingleFileEditFixture: BenchmarkFixtureMetadata = {
+  benchmarkId: "config_single_file_edit",
+  fixturePath: "tests/fixtures/config-single-file-edit",
+  task:
+    "Update scintilla.config.json so auditEverySteps is 3 while allowMultiFileWorkerTasks remains false and defaultModelTier remains tier_1.",
+  allowedFiles: ["README.md", "package.json", "scintilla.config.json"],
+  verifierId: "configSingleFileEditVerifier"
+};
+
+export const benchmarkFixtures = [docsSingleFileEditFixture, configSingleFileEditFixture] as const satisfies readonly BenchmarkFixtureMetadata[];

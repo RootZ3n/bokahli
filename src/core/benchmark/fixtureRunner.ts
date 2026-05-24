@@ -1,6 +1,7 @@
 import { lstat, readFile } from "node:fs/promises";
 import path from "node:path";
 import { validateBenchmarkCandidateResult } from "./candidateValidation.js";
+import { verifyConfigSingleFileEdit } from "./configSingleFileEditVerifier.js";
 import { verifyDocsSingleFileEdit } from "./docsSingleFileEditVerifier.js";
 import {
   benchmarkFixtures,
@@ -27,6 +28,7 @@ export interface BenchmarkFixtureRunnerOptions {
 }
 
 const defaultVerifiers: Readonly<Record<string, BenchmarkVerifier>> = {
+  configSingleFileEditVerifier: verifyConfigSingleFileEdit,
   docsSingleFileEditVerifier: verifyDocsSingleFileEdit
 };
 

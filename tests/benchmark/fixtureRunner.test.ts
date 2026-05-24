@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { runBenchmarkFixture, type BenchmarkVerifier } from "../../src/index.js";
-import { docsSingleFileEditFixture, type BenchmarkCandidateResult } from "../../src/core/benchmark/fixtures.js";
+import { configSingleFileEditFixture, docsSingleFileEditFixture, type BenchmarkCandidateResult } from "../../src/core/benchmark/fixtures.js";
 
 const passingCandidate: BenchmarkCandidateResult = {
   benchmarkId: "docs_single_file_edit",
@@ -10,6 +10,23 @@ const passingCandidate: BenchmarkCandidateResult = {
     "README.md": "# Fixture\n\n## Usage\nRun the tool with the default command.\n\nUse `npm run doctor` to check setup.\n"
   },
   notes: ["Diff evidence: README.md changed to mention npm run doctor."]
+};
+
+const passingConfigCandidate: BenchmarkCandidateResult = {
+  benchmarkId: "config_single_file_edit",
+  changedFiles: ["scintilla.config.json"],
+  fileContents: {
+    "scintilla.config.json": JSON.stringify(
+      {
+        auditEverySteps: 3,
+        allowMultiFileWorkerTasks: false,
+        defaultModelTier: "tier_1"
+      },
+      null,
+      2
+    )
+  },
+  notes: ["Diff evidence: scintilla.config.json changed auditEverySteps."]
 };
 
 describe("benchmark fixture runner", () => {
@@ -47,10 +64,17 @@ describe("benchmark fixture runner", () => {
     expect(result.evidence[0]).toContain("available executable fixtures:");
   });
 
+  it("passes config_single_file_edit candidate through the runner", async () => {
+    const result = await runBenchmarkFixture("config_single_file_edit", passingConfigCandidate);
+
+    expect(result.ok).toBe(true);
+    expect(result.benchmarkId).toBe("config_single_file_edit");
+    expect(result.evidence).toEqual(expect.arrayContaining(["loaded fixture tests/fixtures/config-single-file-edit", "auditEverySteps === 3"]));
+  });
+
   it("returns structured failure when fixture metadata is missing", async () => {
-    const result = await runBenchmarkFixture("config_single_file_edit", {
-      ...passingCandidate,
-      benchmarkId: "config_single_file_edit"
+    const result = await runBenchmarkFixture("config_single_file_edit", passingConfigCandidate, {
+      fixtures: [docsSingleFileEditFixture]
     });
 
     expect(result.ok).toBe(false);
@@ -59,13 +83,13 @@ describe("benchmark fixture runner", () => {
   });
 
   it("returns structured failure when no verifier exists for fixture metadata", async () => {
-    const result = await runBenchmarkFixture("docs_single_file_edit", passingCandidate, {
-      fixtures: [{ ...docsSingleFileEditFixture, verifierId: "missingVerifier" }],
+    const result = await runBenchmarkFixture("config_single_file_edit", passingConfigCandidate, {
+      fixtures: [{ ...configSingleFileEditFixture, verifierId: "missingVerifier" }],
       verifiers: {}
     });
 
     expect(result.ok).toBe(false);
-    expect(result.failedChecks).toContain("no verifier exists for benchmark: docs_single_file_edit");
+    expect(result.failedChecks).toContain("no verifier exists for benchmark: config_single_file_edit");
     expect(result.evidence).toContain("missing verifier id: missingVerifier");
   });
 

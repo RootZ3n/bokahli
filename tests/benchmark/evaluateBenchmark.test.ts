@@ -25,6 +25,23 @@ const failingCandidate = {
   }
 };
 
+const passingConfigCandidate = {
+  benchmarkId: "config_single_file_edit",
+  changedFiles: ["scintilla.config.json"],
+  fileContents: {
+    "scintilla.config.json": JSON.stringify(
+      {
+        auditEverySteps: 3,
+        allowMultiFileWorkerTasks: false,
+        defaultModelTier: "tier_1"
+      },
+      null,
+      2
+    )
+  },
+  notes: ["Diff evidence: scintilla.config.json changed auditEverySteps."]
+};
+
 async function createTempDir(): Promise<string> {
   return mkdtemp(path.join(tmpdir(), "scintilla-evaluate-benchmark-"));
 }
@@ -132,6 +149,15 @@ describe("benchmark evaluation API", () => {
     expect(result.source).toBe("file");
   });
 
+  it("returns ok:true for config_single_file_edit through JSON string evaluation", async () => {
+    const result = await evaluateBenchmarkCandidateFromJsonString("config_single_file_edit", JSON.stringify(passingConfigCandidate));
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.verification.passedChecks).toContain("auditEverySteps is exactly 3");
+    }
+  });
+
   it("returns ok:false for malformed file candidate", async () => {
     const dir = await createTempDir();
     const filePath = path.join(dir, "candidate.json");
@@ -224,6 +250,41 @@ describe("benchmark evaluation API", () => {
     if (!result.ok) {
       expect(result.stage).toBe("load");
       expect(result.verification).toBeUndefined();
+    }
+  });
+
+  it("does not call config verifier when validation fails", async () => {
+    let verifierCalled = false;
+    const result = await evaluateBenchmarkCandidateFromJsonString(
+      "config_single_file_edit",
+      JSON.stringify({
+        benchmarkId: "config_single_file_edit",
+        fileContents: {
+          "scintilla.config.json": passingConfigCandidate.fileContents["scintilla.config.json"]
+        }
+      }),
+      {
+        fixtureRunner: {
+          verifiers: {
+            configSingleFileEditVerifier: () => {
+              verifierCalled = true;
+              return {
+                ok: true,
+                benchmarkId: "config_single_file_edit",
+                passedChecks: [],
+                failedChecks: [],
+                evidence: []
+              };
+            }
+          }
+        }
+      }
+    );
+
+    expect(result.ok).toBe(false);
+    expect(verifierCalled).toBe(false);
+    if (!result.ok) {
+      expect(result.stage).toBe("validate");
     }
   });
 });

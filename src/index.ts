@@ -5,6 +5,7 @@ export {
   type BenchmarkEvaluationOptions,
   type BenchmarkEvaluationResult
 } from "./core/benchmark/evaluateBenchmark.js";
+export { verifyConfigSingleFileEdit } from "./core/benchmark/configSingleFileEditVerifier.js";
 export {
   loadCandidateResultFromFile,
   loadCandidateResultFromJsonString,
@@ -21,6 +22,7 @@ export {
 export { runBenchmarkFixture, type BenchmarkFixtureRunnerOptions, type BenchmarkVerifier, type LoadedBenchmarkFixture } from "./core/benchmark/fixtureRunner.js";
 export {
   benchmarkFixtures,
+  configSingleFileEditFixture,
   docsSingleFileEditFixture,
   type BenchmarkCandidateResult,
   type BenchmarkFixtureMetadata,
