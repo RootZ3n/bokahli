@@ -1,4 +1,11 @@
 export {
+  loadCandidateResultFromFile,
+  loadCandidateResultFromJsonString,
+  type CandidateLoadError,
+  type CandidateLoaderOptions,
+  type CandidateLoadResult
+} from "./core/benchmark/candidateLoader.js";
+export {
   validateBenchmarkCandidateResult,
   type CandidateValidationError,
   type CandidateValidationOptions,
