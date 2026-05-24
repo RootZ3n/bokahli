@@ -88,6 +88,15 @@ pnpm candidates:validate -- --candidate tests/fixtures/candidate-cli/valid-docs-
 
 Validation exits `0` for valid candidates, `1` for candidate shape or benchmark mismatch failures, and `2` for usage or load failures such as missing files or malformed JSON.
 
+Candidate JSON files can also be evaluated against deterministic executable fixtures:
+
+```sh
+pnpm candidates:evaluate -- --candidate tests/fixtures/candidate-cli/valid-docs-candidate.json --benchmark docs_single_file_edit
+pnpm candidates:evaluate -- --candidate tests/fixtures/candidate-cli/valid-docs-candidate.json --benchmark docs_single_file_edit --json
+```
+
+Evaluation exits `0` when verification passes, `1` when deterministic benchmark verification fails, and `2` for usage, load, validation, unknown benchmark, or benchmark mismatch failures. It does not call models, execute candidate code, or mutate files.
+
 `config_single_file_edit` also has an executable fixture and verifier. The fixture requires a config-only update to `scintilla.config.json`: `auditEverySteps` must change from `5` to `3`, `allowMultiFileWorkerTasks` must remain `false`, and `defaultModelTier` must remain `tier_1`. The verifier rejects package or README edits, invalid JSON, unrelated files, wrong config values, and success claims without diff evidence. It is deterministic and makes no model calls.
 
 `context_retrieval_only` has an executable fixture and verifier for no-edit retrieval tasks. A passing candidate must leave `changedFiles` empty, provide no changed `fileContents`, and cite `docs/ARCHITECTURE.md` for Ariadne as the repo context keeper plus `src/audit/drift.ts` for `detectDrift` or drift detection. Package metadata, README-only evidence, or unrelated repo-map evidence cannot satisfy the task. This benchmark matters because Ariadne-style context keeping depends on finding the right repository evidence without muddying results with edits.

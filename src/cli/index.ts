@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 import { runBenchmarksListCli } from "./benchmarks.js";
+import { runCandidatesEvaluateCli } from "./evaluate.js";
 import { runCandidatesValidateCli } from "./candidates.js";
 
 function usageError(message: string): never {
   process.stderr.write(
-    `${message}\n\nUsage:\n  scintilla benchmarks list [--json]\n  scintilla benchmarks list --help\n  scintilla candidates validate --candidate <path> [--benchmark <benchmarkId>] [--json]\n  scintilla candidates validate --help\n`
+    `${message}\n\nUsage:\n  scintilla benchmarks list [--json]\n  scintilla benchmarks list --help\n  scintilla candidates validate --candidate <path> [--benchmark <benchmarkId>] [--json]\n  scintilla candidates validate --help\n  scintilla candidates evaluate --candidate <path> --benchmark <benchmarkId> [--json]\n  scintilla candidates evaluate --help\n`
   );
   process.exit(2);
 }
@@ -16,6 +17,8 @@ const result =
     ? runBenchmarksListCli(args.slice(2))
     : args[0] === "candidates" && args[1] === "validate"
       ? await runCandidatesValidateCli(args.slice(2))
+      : args[0] === "candidates" && args[1] === "evaluate"
+        ? await runCandidatesEvaluateCli(args.slice(2))
       : usageError("Unknown command.");
 
 if (result.stdout.length > 0) {

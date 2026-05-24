@@ -11,7 +11,8 @@
     "test": "vitest run",
     "build": "tsc -p tsconfig.build.json",
     "benchmarks:list": "node dist/cli/index.js benchmarks list",
-    "candidates:validate": "node dist/cli/index.js candidates validate"
+    "candidates:validate": "node dist/cli/index.js candidates validate",
+    "candidates:evaluate": "node dist/cli/index.js candidates evaluate"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
