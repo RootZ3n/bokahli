@@ -145,6 +145,9 @@ Generate deterministic mock worker output from the example contract and context 
 
 ```sh
 pnpm mock-worker:run -- --contract examples/contracts/readme_patch_one_file.contract.json --context-packet examples/context-packets/readme_patch_one_file.packet.json --scenario valid_docs_single_file_edit --json
+pnpm --silent mock-worker:run -- --contract examples/contracts/readme_patch_one_file.contract.json --context-packet examples/context-packets/readme_patch_one_file.packet.json --scenario valid_docs_single_file_edit --candidate-only > /tmp/scintilla-candidate.json
+pnpm candidates:validate -- --candidate /tmp/scintilla-candidate.json --benchmark docs_single_file_edit
+pnpm candidates:evaluate -- --candidate /tmp/scintilla-candidate.json --benchmark docs_single_file_edit
 ```
 
 List context packet templates with:

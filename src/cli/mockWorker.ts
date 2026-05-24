@@ -15,10 +15,11 @@ interface ParsedArgs {
   contextPacketPath: string;
   scenario: MockWorkerScenario;
   json: boolean;
+  candidateOnly: boolean;
 }
 
 const usage = `Usage:
-  scintilla mock-worker run --contract <path> --context-packet <path> --scenario <scenario> [--json]
+  scintilla mock-worker run --contract <path> --context-packet <path> --scenario <scenario> [--json] [--candidate-only]
   scintilla mock-worker run --help
 
 Options:
@@ -26,6 +27,7 @@ Options:
   --context-packet <path>  Local ContextPacket JSON file.
   --scenario <scenario>    Mock worker scenario to emit.
   --json                   Print machine-readable worker result.
+  --candidate-only         Print only emitted candidate JSON. Implies JSON output.
   --help                   Show this help message.`;
 
 const forbiddenExecutionFlags = new Set(["--run", "--execute", "--apply", "--model", "--ollama", "--evaluate", "--verify"]);
@@ -53,6 +55,7 @@ function parseArgs(args: readonly string[]): ParsedArgs | MockWorkerRunCliResult
   let contextPacketPath: string | undefined;
   let scenario: MockWorkerScenario | undefined;
   let json = false;
+  let candidateOnly = false;
 
   for (let index = 0; index < normalizedArgs.length; index += 1) {
     const arg = normalizedArgs[index];
@@ -66,6 +69,11 @@ function parseArgs(args: readonly string[]): ParsedArgs | MockWorkerRunCliResult
 
     if (arg === "--json") {
       json = true;
+      continue;
+    }
+
+    if (arg === "--candidate-only") {
+      candidateOnly = true;
       continue;
     }
 
@@ -110,7 +118,8 @@ function parseArgs(args: readonly string[]): ParsedArgs | MockWorkerRunCliResult
     contractPath,
     contextPacketPath,
     scenario,
-    json
+    json,
+    candidateOnly
   };
 }
 
@@ -247,6 +256,22 @@ export async function runMockWorkerCli(args: readonly string[]): Promise<MockWor
     scenario: parsedArgs.scenario
   });
   const hasCandidate = result.candidate !== undefined;
+
+  if (parsedArgs.candidateOnly) {
+    if (!hasCandidate) {
+      return {
+        exitCode: 1,
+        stdout: "",
+        stderr: `Mock worker emitted no candidate for scenario ${result.scenario}${result.ok ? "" : `: ${result.reason}`}\n`
+      };
+    }
+
+    return {
+      exitCode: 0,
+      stdout: `${JSON.stringify(result.candidate, null, 2)}\n`,
+      stderr: ""
+    };
+  }
 
   return {
     exitCode: hasCandidate ? 0 : 1,
