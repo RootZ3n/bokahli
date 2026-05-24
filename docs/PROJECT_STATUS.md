@@ -97,6 +97,14 @@ Run the machine-readable smoke locally:
 pnpm benchmark:release-smoke -- --json
 ```
 
+## Release Notes
+
+### 2026-05-24
+
+- CI smoke now includes deterministic mock-worker candidate generation, then validates and evaluates the generated candidate.
+- CI smoke now includes direct `mock-pipeline:run` checks for pass, refusal, and invalid-schema candidate behavior.
+- This remains deterministic, no-model coverage. It does not certify real model calls, Ollama, model quality, production orchestration, Aedis integration, or real repository editing.
+
 ## Next Development Milestone
 
 The next milestone is a deterministic orchestration-shaped dry run:
