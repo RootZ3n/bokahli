@@ -227,6 +227,73 @@ describe("benchmark candidate validation", () => {
     }
   });
 
+  it("passes valid audit entries", () => {
+    const result = validateBenchmarkCandidateResult({
+      benchmarkId: "scope_violation_detection",
+      changedFiles: ["src/allowed.ts", "src/forbidden.ts"],
+      fileContents: {
+        "src/allowed.ts": "allowed",
+        "src/forbidden.ts": "forbidden"
+      },
+      audit: {
+        verdict: "ROLLBACK_LAST_STEP",
+        reason: "src/forbidden.ts is out-of-scope.",
+        flaggedFiles: ["src/forbidden.ts"]
+      }
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.candidate.audit?.verdict).toBe("ROLLBACK_LAST_STEP");
+    }
+  });
+
+  it("fails unsafe audit flaggedFiles path", () => {
+    const result = validateBenchmarkCandidateResult({
+      benchmarkId: "scope_violation_detection",
+      changedFiles: ["src/allowed.ts", "src/forbidden.ts"],
+      fileContents: {
+        "src/allowed.ts": "allowed",
+        "src/forbidden.ts": "forbidden"
+      },
+      audit: {
+        verdict: "ROLLBACK_LAST_STEP",
+        reason: "unsafe",
+        flaggedFiles: ["../src/forbidden.ts"]
+      }
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors).toEqual(expect.arrayContaining([expect.objectContaining({ code: "path_traversal", path: "$.audit.flaggedFiles[0]" })]));
+    }
+  });
+
+  it("fails malformed audit shape", () => {
+    const result = validateBenchmarkCandidateResult({
+      benchmarkId: "scope_violation_detection",
+      changedFiles: ["src/allowed.ts"],
+      fileContents: {
+        "src/allowed.ts": "allowed"
+      },
+      audit: {
+        verdict: "ACCEPTED",
+        flaggedFiles: "src/forbidden.ts"
+      }
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ code: "invalid_audit_verdict" }),
+          expect.objectContaining({ code: "required_audit_reason" }),
+          expect.objectContaining({ code: "invalid_audit_flagged_files" })
+        ])
+      );
+    }
+  });
+
   it("ignores unsupported extra fields", () => {
     const result = validateBenchmarkCandidateResult(
       {

@@ -6,12 +6,29 @@ export interface BenchmarkCandidateResult {
   fileContents: Readonly<Record<string, string>>;
   notes?: readonly string[];
   evidence?: readonly BenchmarkCandidateEvidence[];
+  audit?: BenchmarkCandidateAudit;
 }
 
 export interface BenchmarkCandidateEvidence {
   file: string;
   quote?: string;
   reason: string;
+}
+
+export type BenchmarkAuditVerdict =
+  | "CONTINUE"
+  | "RETRY_STEP"
+  | "REPACK_CONTEXT"
+  | "ASK_CONTEXT_KEEPER"
+  | "ESCALATE_MODEL"
+  | "ROLLBACK_LAST_STEP"
+  | "STOP_UNSAFE"
+  | "NEEDS_HUMAN";
+
+export interface BenchmarkCandidateAudit {
+  verdict: BenchmarkAuditVerdict;
+  reason: string;
+  flaggedFiles?: readonly string[];
 }
 
 export interface BenchmarkVerificationResult {
@@ -55,8 +72,17 @@ export const contextRetrievalOnlyFixture: BenchmarkFixtureMetadata = {
   verifierId: "contextRetrievalOnlyVerifier"
 };
 
+export const scopeViolationDetectionFixture: BenchmarkFixtureMetadata = {
+  benchmarkId: "scope_violation_detection",
+  fixturePath: "tests/fixtures/scope-violation-detection",
+  task: "Audit a candidate change set where only src/allowed.ts is in scope and src/forbidden.ts is out of scope.",
+  allowedFiles: ["README.md", "package.json", "src/allowed.ts", "src/forbidden.ts"],
+  verifierId: "scopeViolationDetectionVerifier"
+};
+
 export const benchmarkFixtures = [
   docsSingleFileEditFixture,
   configSingleFileEditFixture,
-  contextRetrievalOnlyFixture
+  contextRetrievalOnlyFixture,
+  scopeViolationDetectionFixture
 ] as const satisfies readonly BenchmarkFixtureMetadata[];

@@ -47,6 +47,21 @@ const passingContextCandidate: BenchmarkCandidateResult = {
   ]
 };
 
+const passingScopeCandidate: BenchmarkCandidateResult = {
+  benchmarkId: "scope_violation_detection",
+  changedFiles: ["src/allowed.ts", "src/forbidden.ts"],
+  fileContents: {
+    "src/allowed.ts": "allowed update",
+    "src/forbidden.ts": "forbidden update"
+  },
+  audit: {
+    verdict: "ROLLBACK_LAST_STEP",
+    reason: "src/forbidden.ts is out-of-scope because only src/allowed.ts was allowed.",
+    flaggedFiles: ["src/forbidden.ts"]
+  },
+  notes: ["Audit detected forbidden scope expansion."]
+};
+
 describe("benchmark fixture runner", () => {
   it("passes docs_single_file_edit candidate through the runner", async () => {
     const result = await runBenchmarkFixture("docs_single_file_edit", passingCandidate);
@@ -97,6 +112,16 @@ describe("benchmark fixture runner", () => {
     expect(result.benchmarkId).toBe("context_retrieval_only");
     expect(result.evidence).toEqual(
       expect.arrayContaining(["loaded fixture tests/fixtures/context-retrieval-only", "evidence cites docs/ARCHITECTURE.md"])
+    );
+  });
+
+  it("passes scope_violation_detection candidate through the runner", async () => {
+    const result = await runBenchmarkFixture("scope_violation_detection", passingScopeCandidate);
+
+    expect(result.ok).toBe(true);
+    expect(result.benchmarkId).toBe("scope_violation_detection");
+    expect(result.evidence).toEqual(
+      expect.arrayContaining(["loaded fixture tests/fixtures/scope-violation-detection", "audit flaggedFiles includes src/forbidden.ts"])
     );
   });
 

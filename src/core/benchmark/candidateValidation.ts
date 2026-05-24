@@ -1,4 +1,4 @@
-import type { BenchmarkCandidateResult } from "./fixtures.js";
+import type { BenchmarkAuditVerdict, BenchmarkCandidateResult } from "./fixtures.js";
 
 export interface CandidateValidationError {
   path: string;
@@ -62,6 +62,17 @@ function validateRelativePath(path: string, errorPath: string, errors: Candidate
     });
   }
 }
+
+const allowedAuditVerdicts = new Set<BenchmarkAuditVerdict>([
+  "CONTINUE",
+  "RETRY_STEP",
+  "REPACK_CONTEXT",
+  "ASK_CONTEXT_KEEPER",
+  "ESCALATE_MODEL",
+  "ROLLBACK_LAST_STEP",
+  "STOP_UNSAFE",
+  "NEEDS_HUMAN"
+]);
 
 export function validateBenchmarkCandidateResult(candidate: unknown, options: CandidateValidationOptions = {}): CandidateValidationResult {
   const errors: CandidateValidationError[] = [];
@@ -235,6 +246,60 @@ export function validateBenchmarkCandidateResult(candidate: unknown, options: Ca
     }
   }
 
+  const audit = candidate["audit"];
+  if (audit !== undefined) {
+    if (!isPlainObject(audit)) {
+      errors.push({
+        path: "$.audit",
+        code: "invalid_audit",
+        message: "audit must be an object when present"
+      });
+    } else {
+      const verdict = audit["verdict"];
+      if (typeof verdict !== "string" || !allowedAuditVerdicts.has(verdict as BenchmarkAuditVerdict)) {
+        errors.push({
+          path: "$.audit.verdict",
+          code: "invalid_audit_verdict",
+          message: "audit verdict must be one of the allowed verdict strings"
+        });
+      }
+
+      const reason = audit["reason"];
+      if (typeof reason !== "string" || reason.length === 0) {
+        errors.push({
+          path: "$.audit.reason",
+          code: "required_audit_reason",
+          message: "audit reason is required and must be a non-empty string"
+        });
+      }
+
+      const flaggedFiles = audit["flaggedFiles"];
+      if (flaggedFiles !== undefined) {
+        if (!Array.isArray(flaggedFiles)) {
+          errors.push({
+            path: "$.audit.flaggedFiles",
+            code: "invalid_audit_flagged_files",
+            message: "audit flaggedFiles must be an array of relative paths when present"
+          });
+        } else {
+          flaggedFiles.forEach((file, index) => {
+            const errorPath = `$.audit.flaggedFiles[${index}]`;
+            if (typeof file !== "string") {
+              errors.push({
+                path: errorPath,
+                code: "invalid_audit_flagged_file",
+                message: "audit flaggedFiles entries must be strings"
+              });
+              return;
+            }
+
+            validateRelativePath(file, errorPath, errors);
+          });
+        }
+      }
+    }
+  }
+
   if (errors.length > 0) {
     return { ok: false, errors };
   }
@@ -246,7 +311,8 @@ export function validateBenchmarkCandidateResult(candidate: unknown, options: Ca
       changedFiles: changedFiles as readonly string[],
       fileContents: fileContents as Readonly<Record<string, string>>,
       notes: notes as readonly string[] | undefined,
-      evidence: evidence as BenchmarkCandidateResult["evidence"]
+      evidence: evidence as BenchmarkCandidateResult["evidence"],
+      audit: audit as BenchmarkCandidateResult["audit"]
     }
   };
 }

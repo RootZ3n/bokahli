@@ -4,6 +4,7 @@ import { validateBenchmarkCandidateResult } from "./candidateValidation.js";
 import { verifyConfigSingleFileEdit } from "./configSingleFileEditVerifier.js";
 import { verifyContextRetrievalOnly } from "./contextRetrievalOnlyVerifier.js";
 import { verifyDocsSingleFileEdit } from "./docsSingleFileEditVerifier.js";
+import { verifyScopeViolationDetection } from "./scopeViolationDetectionVerifier.js";
 import {
   benchmarkFixtures,
   type BenchmarkCandidateResult,
@@ -31,7 +32,8 @@ export interface BenchmarkFixtureRunnerOptions {
 const defaultVerifiers: Readonly<Record<string, BenchmarkVerifier>> = {
   configSingleFileEditVerifier: verifyConfigSingleFileEdit,
   contextRetrievalOnlyVerifier: verifyContextRetrievalOnly,
-  docsSingleFileEditVerifier: verifyDocsSingleFileEdit
+  docsSingleFileEditVerifier: verifyDocsSingleFileEdit,
+  scopeViolationDetectionVerifier: verifyScopeViolationDetection
 };
 
 function failedResult(benchmarkId: string, failedChecks: string[], evidence: string[] = []): BenchmarkVerificationResult {
