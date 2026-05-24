@@ -8,6 +8,7 @@ export interface BenchmarkCandidateResult {
   evidence?: readonly BenchmarkCandidateEvidence[];
   audit?: BenchmarkCandidateAudit;
   drift?: BenchmarkCandidateDrift;
+  decomposition?: BenchmarkCandidateDecomposition;
 }
 
 export interface BenchmarkCandidateEvidence {
@@ -38,6 +39,19 @@ export interface BenchmarkCandidateDrift {
   expected?: string;
   observed?: string;
   evidenceFiles: readonly string[];
+}
+
+export type BenchmarkDecompositionStrategy = "single_file_steps" | "single_purpose_steps";
+
+export interface BenchmarkCandidateDecomposition {
+  strategy: BenchmarkDecompositionStrategy;
+  steps: readonly BenchmarkCandidateDecompositionStep[];
+}
+
+export interface BenchmarkCandidateDecompositionStep {
+  stepId: string;
+  purpose: string;
+  file: string;
 }
 
 export interface BenchmarkVerificationResult {
@@ -105,11 +119,20 @@ export const failingTestSingleFileFixFixture: BenchmarkFixtureMetadata = {
   verifierId: "failingTestSingleFileFixVerifier"
 };
 
+export const threeFileChainConfigTestDocsFixture: BenchmarkFixtureMetadata = {
+  benchmarkId: "three_file_chain_config_test_docs",
+  fixturePath: "tests/fixtures/three-file-chain-config-test-docs",
+  task: "Change audit frequency from every 5 steps to every 3 steps across config, test, and docs using single-file steps.",
+  allowedFiles: ["README.md", "package.json", "scintilla.config.json", "tests/config.test.ts"],
+  verifierId: "threeFileChainConfigTestDocsVerifier"
+};
+
 export const benchmarkFixtures = [
   docsSingleFileEditFixture,
   configSingleFileEditFixture,
   contextRetrievalOnlyFixture,
   scopeViolationDetectionFixture,
   driftDetectionFixture,
-  failingTestSingleFileFixFixture
+  failingTestSingleFileFixFixture,
+  threeFileChainConfigTestDocsFixture
 ] as const satisfies readonly BenchmarkFixtureMetadata[];

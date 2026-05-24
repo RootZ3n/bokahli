@@ -116,6 +116,35 @@ const passingFailingTestCandidate = {
   notes: ["Diff evidence: src/math.ts below-min branch now returns min."]
 };
 
+const threeFileConfig = JSON.stringify(
+  {
+    auditEverySteps: 3,
+    allowMultiFileWorkerTasks: false,
+    defaultModelTier: "tier_1"
+  },
+  null,
+  2
+);
+
+const passingThreeFileCandidate = {
+  benchmarkId: "three_file_chain_config_test_docs",
+  changedFiles: ["README.md", "scintilla.config.json", "tests/config.test.ts"],
+  fileContents: {
+    "README.md": "Audits run every 3 steps.",
+    "scintilla.config.json": threeFileConfig,
+    "tests/config.test.ts": "expect(config.auditEverySteps).toBe(3);"
+  },
+  decomposition: {
+    strategy: "single_purpose_steps",
+    steps: [
+      { stepId: "config", purpose: "config update auditEverySteps", file: "scintilla.config.json" },
+      { stepId: "test", purpose: "test update expected audit frequency", file: "tests/config.test.ts" },
+      { stepId: "docs", purpose: "docs update README audit frequency", file: "README.md" }
+    ]
+  },
+  notes: ["Diff evidence: three expected files changed."]
+};
+
 async function createTempDir(): Promise<string> {
   return mkdtemp(path.join(tmpdir(), "scintilla-evaluate-benchmark-"));
 }
@@ -269,6 +298,16 @@ describe("benchmark evaluation API", () => {
     if (result.ok) {
       expect(result.verification.passedChecks).toContain("below-min branch returns min");
       expect(result.verification.passedChecks).toContain("changedFiles contains only src/math.ts");
+    }
+  });
+
+  it("returns ok:true for three_file_chain_config_test_docs through JSON string evaluation", async () => {
+    const result = await evaluateBenchmarkCandidateFromJsonString("three_file_chain_config_test_docs", JSON.stringify(passingThreeFileCandidate));
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.verification.passedChecks).toContain("changedFiles contains exactly config, test, and docs files");
+      expect(result.verification.passedChecks).toContain("decomposition has one step for each changed file");
     }
   });
 

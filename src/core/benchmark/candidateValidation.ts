@@ -1,4 +1,4 @@
-import type { BenchmarkAuditVerdict, BenchmarkCandidateResult } from "./fixtures.js";
+import type { BenchmarkAuditVerdict, BenchmarkCandidateResult, BenchmarkDecompositionStrategy } from "./fixtures.js";
 
 export interface CandidateValidationError {
   path: string;
@@ -73,6 +73,8 @@ const allowedAuditVerdicts = new Set<BenchmarkAuditVerdict>([
   "STOP_UNSAFE",
   "NEEDS_HUMAN"
 ]);
+
+const allowedDecompositionStrategies = new Set<BenchmarkDecompositionStrategy>(["single_file_steps", "single_purpose_steps"]);
 
 export function validateBenchmarkCandidateResult(candidate: unknown, options: CandidateValidationOptions = {}): CandidateValidationResult {
   const errors: CandidateValidationError[] = [];
@@ -370,6 +372,76 @@ export function validateBenchmarkCandidateResult(candidate: unknown, options: Ca
     }
   }
 
+  const decomposition = candidate["decomposition"];
+  if (decomposition !== undefined) {
+    if (!isPlainObject(decomposition)) {
+      errors.push({
+        path: "$.decomposition",
+        code: "invalid_decomposition",
+        message: "decomposition must be an object when present"
+      });
+    } else {
+      const strategy = decomposition["strategy"];
+      if (typeof strategy !== "string" || !allowedDecompositionStrategies.has(strategy as BenchmarkDecompositionStrategy)) {
+        errors.push({
+          path: "$.decomposition.strategy",
+          code: "invalid_decomposition_strategy",
+          message: "decomposition strategy must be single_file_steps or single_purpose_steps"
+        });
+      }
+
+      const steps = decomposition["steps"];
+      if (!Array.isArray(steps) || steps.length === 0) {
+        errors.push({
+          path: "$.decomposition.steps",
+          code: "required_decomposition_steps",
+          message: "decomposition steps must be a non-empty array"
+        });
+      } else {
+        steps.forEach((step, index) => {
+          const stepPath = `$.decomposition.steps[${index}]`;
+          if (!isPlainObject(step)) {
+            errors.push({
+              path: stepPath,
+              code: "invalid_decomposition_step",
+              message: "decomposition steps must be objects"
+            });
+            return;
+          }
+
+          const stepId = step["stepId"];
+          if (typeof stepId !== "string" || stepId.length === 0) {
+            errors.push({
+              path: `${stepPath}.stepId`,
+              code: "required_decomposition_step_id",
+              message: "decomposition stepId is required and must be a non-empty string"
+            });
+          }
+
+          const purpose = step["purpose"];
+          if (typeof purpose !== "string" || purpose.length === 0) {
+            errors.push({
+              path: `${stepPath}.purpose`,
+              code: "required_decomposition_purpose",
+              message: "decomposition purpose is required and must be a non-empty string"
+            });
+          }
+
+          const file = step["file"];
+          if (typeof file !== "string") {
+            errors.push({
+              path: `${stepPath}.file`,
+              code: "required_decomposition_file",
+              message: "decomposition file is required and must be a string"
+            });
+          } else {
+            validateRelativePath(file, `${stepPath}.file`, errors);
+          }
+        });
+      }
+    }
+  }
+
   if (errors.length > 0) {
     return { ok: false, errors };
   }
@@ -383,7 +455,8 @@ export function validateBenchmarkCandidateResult(candidate: unknown, options: Ca
       notes: notes as readonly string[] | undefined,
       evidence: evidence as BenchmarkCandidateResult["evidence"],
       audit: audit as BenchmarkCandidateResult["audit"],
-      drift: drift as BenchmarkCandidateResult["drift"]
+      drift: drift as BenchmarkCandidateResult["drift"],
+      decomposition: decomposition as BenchmarkCandidateResult["decomposition"]
     }
   };
 }

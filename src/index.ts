@@ -10,6 +10,7 @@ export { verifyContextRetrievalOnly } from "./core/benchmark/contextRetrievalOnl
 export { verifyDriftDetection } from "./core/benchmark/driftDetectionVerifier.js";
 export { verifyFailingTestSingleFileFix } from "./core/benchmark/failingTestSingleFileFixVerifier.js";
 export { verifyScopeViolationDetection } from "./core/benchmark/scopeViolationDetectionVerifier.js";
+export { verifyThreeFileChainConfigTestDocs } from "./core/benchmark/threeFileChainConfigTestDocsVerifier.js";
 export {
   loadCandidateResultFromFile,
   loadCandidateResultFromJsonString,
@@ -32,10 +33,14 @@ export {
   docsSingleFileEditFixture,
   failingTestSingleFileFixFixture,
   scopeViolationDetectionFixture,
+  threeFileChainConfigTestDocsFixture,
   type BenchmarkAuditVerdict,
   type BenchmarkCandidateAudit,
+  type BenchmarkCandidateDecomposition,
+  type BenchmarkCandidateDecompositionStep,
   type BenchmarkCandidateDrift,
   type BenchmarkCandidateEvidence,
+  type BenchmarkDecompositionStrategy,
   type BenchmarkCandidateResult,
   type BenchmarkFixtureMetadata,
   type BenchmarkVerificationResult

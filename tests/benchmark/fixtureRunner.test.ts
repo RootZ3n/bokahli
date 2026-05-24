@@ -103,6 +103,35 @@ const passingFailingTestCandidate: BenchmarkCandidateResult = {
   notes: ["Diff evidence: src/math.ts below-min branch now returns min."]
 };
 
+const threeFileConfig = JSON.stringify(
+  {
+    auditEverySteps: 3,
+    allowMultiFileWorkerTasks: false,
+    defaultModelTier: "tier_1"
+  },
+  null,
+  2
+);
+
+const passingThreeFileCandidate: BenchmarkCandidateResult = {
+  benchmarkId: "three_file_chain_config_test_docs",
+  changedFiles: ["README.md", "scintilla.config.json", "tests/config.test.ts"],
+  fileContents: {
+    "README.md": "Audits run every 3 steps.",
+    "scintilla.config.json": threeFileConfig,
+    "tests/config.test.ts": "expect(config.auditEverySteps).toBe(3);"
+  },
+  decomposition: {
+    strategy: "single_file_steps",
+    steps: [
+      { stepId: "config", purpose: "config update auditEverySteps", file: "scintilla.config.json" },
+      { stepId: "test", purpose: "test update expected auditEverySteps", file: "tests/config.test.ts" },
+      { stepId: "docs", purpose: "docs update README", file: "README.md" }
+    ]
+  },
+  notes: ["Diff evidence: three expected files changed."]
+};
+
 describe("benchmark fixture runner", () => {
   it("passes docs_single_file_edit candidate through the runner", async () => {
     const result = await runBenchmarkFixture("docs_single_file_edit", passingCandidate);
@@ -180,6 +209,16 @@ describe("benchmark fixture runner", () => {
     expect(result.ok).toBe(true);
     expect(result.benchmarkId).toBe("failing_test_single_file_fix");
     expect(result.evidence).toEqual(expect.arrayContaining(["loaded fixture tests/fixtures/failing-test-single-file-fix", "below-min branch returns min"]));
+  });
+
+  it("passes three_file_chain_config_test_docs candidate through the runner", async () => {
+    const result = await runBenchmarkFixture("three_file_chain_config_test_docs", passingThreeFileCandidate);
+
+    expect(result.ok).toBe(true);
+    expect(result.benchmarkId).toBe("three_file_chain_config_test_docs");
+    expect(result.evidence).toEqual(
+      expect.arrayContaining(["loaded fixture tests/fixtures/three-file-chain-config-test-docs", "decomposition covers config, test, and docs separately"])
+    );
   });
 
   it("returns structured failure when fixture metadata is missing", async () => {

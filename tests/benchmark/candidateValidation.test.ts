@@ -360,6 +360,70 @@ describe("benchmark candidate validation", () => {
     }
   });
 
+  it("passes valid decomposition", () => {
+    const result = validateBenchmarkCandidateResult({
+      benchmarkId: "three_file_chain_config_test_docs",
+      changedFiles: ["README.md"],
+      fileContents: {
+        "README.md": "Audits run every 3 steps."
+      },
+      decomposition: {
+        strategy: "single_file_steps",
+        steps: [{ stepId: "docs", purpose: "docs update", file: "README.md" }]
+      }
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.candidate.decomposition?.strategy).toBe("single_file_steps");
+    }
+  });
+
+  it("fails unsafe decomposition path", () => {
+    const result = validateBenchmarkCandidateResult({
+      benchmarkId: "three_file_chain_config_test_docs",
+      changedFiles: ["README.md"],
+      fileContents: {
+        "README.md": "Audits run every 3 steps."
+      },
+      decomposition: {
+        strategy: "single_file_steps",
+        steps: [{ stepId: "docs", purpose: "docs update", file: "../README.md" }]
+      }
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors).toEqual(expect.arrayContaining([expect.objectContaining({ code: "path_traversal", path: "$.decomposition.steps[0].file" })]));
+    }
+  });
+
+  it("fails malformed decomposition shape", () => {
+    const result = validateBenchmarkCandidateResult({
+      benchmarkId: "three_file_chain_config_test_docs",
+      changedFiles: ["README.md"],
+      fileContents: {
+        "README.md": "Audits run every 3 steps."
+      },
+      decomposition: {
+        strategy: "all_at_once",
+        steps: [{ stepId: "", purpose: "", file: 3 }]
+      }
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ code: "invalid_decomposition_strategy" }),
+          expect.objectContaining({ code: "required_decomposition_step_id" }),
+          expect.objectContaining({ code: "required_decomposition_purpose" }),
+          expect.objectContaining({ code: "required_decomposition_file" })
+        ])
+      );
+    }
+  });
+
   it("ignores unsupported extra fields", () => {
     const result = validateBenchmarkCandidateResult(
       {

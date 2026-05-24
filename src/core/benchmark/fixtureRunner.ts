@@ -7,6 +7,7 @@ import { verifyDriftDetection } from "./driftDetectionVerifier.js";
 import { verifyDocsSingleFileEdit } from "./docsSingleFileEditVerifier.js";
 import { verifyFailingTestSingleFileFix } from "./failingTestSingleFileFixVerifier.js";
 import { verifyScopeViolationDetection } from "./scopeViolationDetectionVerifier.js";
+import { verifyThreeFileChainConfigTestDocs } from "./threeFileChainConfigTestDocsVerifier.js";
 import {
   benchmarkFixtures,
   type BenchmarkCandidateResult,
@@ -37,7 +38,8 @@ const defaultVerifiers: Readonly<Record<string, BenchmarkVerifier>> = {
   driftDetectionVerifier: verifyDriftDetection,
   docsSingleFileEditVerifier: verifyDocsSingleFileEdit,
   failingTestSingleFileFixVerifier: verifyFailingTestSingleFileFix,
-  scopeViolationDetectionVerifier: verifyScopeViolationDetection
+  scopeViolationDetectionVerifier: verifyScopeViolationDetection,
+  threeFileChainConfigTestDocsVerifier: verifyThreeFileChainConfigTestDocs
 };
 
 function failedResult(benchmarkId: string, failedChecks: string[], evidence: string[] = []): BenchmarkVerificationResult {
