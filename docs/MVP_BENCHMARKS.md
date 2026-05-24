@@ -64,6 +64,12 @@ Candidate results can be loaded from JSON strings or local JSON files through `s
 
 The high-level evaluation API in `src/core/benchmark/evaluateBenchmark.ts` combines candidate loading with the local fixture runner for one benchmark at a time. It is still deterministic and model-free, returning separate load, validate, and verify failures. This API is the boundary that future Aedis, CLI, or orchestration integrations should call instead of reaching into loader and runner internals directly.
 
+## Executable Benchmark Summary API
+
+`src/core/benchmark/summary.ts` exposes `listExecutableBenchmarks()` and `getExecutableBenchmarkSummary()`. These functions return fixture IDs, verifier IDs, baseline status, prompt quality, accepted changed files, zero-edit requirements, candidate field requirements, and short verifier/rejection summaries.
+
+The summary API is deterministic, read-only, and makes no model calls. It is intended as the future CLI/Aedis discovery boundary so integrations can show what Scintilla can evaluate without hardcoding registry and fixture internals.
+
 `config_single_file_edit` also has an executable fixture and verifier. The fixture requires a config-only update to `scintilla.config.json`: `auditEverySteps` must change from `5` to `3`, `allowMultiFileWorkerTasks` must remain `false`, and `defaultModelTier` must remain `tier_1`. The verifier rejects package or README edits, invalid JSON, unrelated files, wrong config values, and success claims without diff evidence. It is deterministic and makes no model calls.
 
 `context_retrieval_only` has an executable fixture and verifier for no-edit retrieval tasks. A passing candidate must leave `changedFiles` empty, provide no changed `fileContents`, and cite `docs/ARCHITECTURE.md` for Ariadne as the repo context keeper plus `src/audit/drift.ts` for `detectDrift` or drift detection. Package metadata, README-only evidence, or unrelated repo-map evidence cannot satisfy the task. This benchmark matters because Ariadne-style context keeping depends on finding the right repository evidence without muddying results with edits.

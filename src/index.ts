@@ -27,6 +27,11 @@ export {
 } from "./core/benchmark/candidateValidation.js";
 export { runBenchmarkFixture, type BenchmarkFixtureRunnerOptions, type BenchmarkVerifier, type LoadedBenchmarkFixture } from "./core/benchmark/fixtureRunner.js";
 export {
+  getExecutableBenchmarkSummary,
+  listExecutableBenchmarks,
+  type ExecutableBenchmarkSummary
+} from "./core/benchmark/summary.js";
+export {
   benchmarkFixtures,
   configSingleFileEditFixture,
   contextRetrievalOnlyFixture,
