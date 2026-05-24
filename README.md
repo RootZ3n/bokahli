@@ -42,6 +42,8 @@ Before claiming the deterministic benchmark plumbing is healthy, use `docs/DETER
 
 For the current experimental status, certified smoke coverage, and next milestone, see `docs/PROJECT_STATUS.md`.
 
+For the long-term dogfood protocol for testing Aedis against Scintilla, see `docs/AEDIS_DOGFOOD_PROTOCOL.md`.
+
 ## Example candidate files
 
 Passing candidate JSON templates for every executable benchmark live in `examples/candidates/`. Start with `examples/candidates/docs_single_file_edit.pass.json` for the simplest edit benchmark, or use the matching `<benchmarkId>.pass.json` file as the payload shape for a specific verifier. See `examples/README.md` for field shapes and benchmark-specific guidance.
