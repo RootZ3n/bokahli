@@ -107,6 +107,7 @@ pnpm benchmark:release-smoke -- --json
 - CI smoke now includes deterministic mock-worker candidate generation, then validates and evaluates the generated candidate.
 - CI smoke now includes direct `mock-pipeline:run` checks for pass, refusal, and invalid-schema candidate behavior.
 - CI smoke now includes mock-pipeline result fixture discovery through `mock-pipeline-results:list`.
+- Deterministic smoke now runs 32 checks across benchmark, candidate, context packet, contract, Ariadne, mock-worker, mock-pipeline, and mock-pipeline result fixture paths.
 - This remains deterministic, no-model coverage. It does not certify real model calls, Ollama, model quality, production orchestration, Aedis integration, or real repository editing.
 
 ## Next Development Milestone
