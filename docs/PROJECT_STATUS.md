@@ -28,6 +28,7 @@ The deterministic benchmark release smoke now checks the benchmark/context/contr
 - generated candidate validation
 - generated candidate evaluation
 - direct mock-pipeline pass/refusal/invalid-schema CLI coverage
+- mock-pipeline result fixture discovery
 - in-memory mock pipeline stage separation
 
 The mock-worker path proves this deterministic chain:
@@ -42,6 +43,8 @@ TaskContract + ContextPacket + scenario
 The mock pipeline API exposes that chain as a structured in-memory result without shelling out or writing files.
 
 The smoke also exercises `mock-pipeline:run` directly for the passing docs scenario, a structured refusal scenario, and an invalid-schema candidate scenario.
+
+The smoke also lists mock-pipeline result fixtures in human, JSON, benchmark-filtered, status-filtered, and id-filtered modes.
 
 ## What The Smoke Does Not Certify
 
@@ -103,6 +106,7 @@ pnpm benchmark:release-smoke -- --json
 
 - CI smoke now includes deterministic mock-worker candidate generation, then validates and evaluates the generated candidate.
 - CI smoke now includes direct `mock-pipeline:run` checks for pass, refusal, and invalid-schema candidate behavior.
+- CI smoke now includes mock-pipeline result fixture discovery through `mock-pipeline-results:list`.
 - This remains deterministic, no-model coverage. It does not certify real model calls, Ollama, model quality, production orchestration, Aedis integration, or real repository editing.
 
 ## Next Development Milestone
