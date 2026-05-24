@@ -3,6 +3,7 @@ import path from "node:path";
 import { validateBenchmarkCandidateResult } from "./candidateValidation.js";
 import { verifyConfigSingleFileEdit } from "./configSingleFileEditVerifier.js";
 import { verifyContextRetrievalOnly } from "./contextRetrievalOnlyVerifier.js";
+import { verifyDriftDetection } from "./driftDetectionVerifier.js";
 import { verifyDocsSingleFileEdit } from "./docsSingleFileEditVerifier.js";
 import { verifyScopeViolationDetection } from "./scopeViolationDetectionVerifier.js";
 import {
@@ -32,6 +33,7 @@ export interface BenchmarkFixtureRunnerOptions {
 const defaultVerifiers: Readonly<Record<string, BenchmarkVerifier>> = {
   configSingleFileEditVerifier: verifyConfigSingleFileEdit,
   contextRetrievalOnlyVerifier: verifyContextRetrievalOnly,
+  driftDetectionVerifier: verifyDriftDetection,
   docsSingleFileEditVerifier: verifyDocsSingleFileEdit,
   scopeViolationDetectionVerifier: verifyScopeViolationDetection
 };

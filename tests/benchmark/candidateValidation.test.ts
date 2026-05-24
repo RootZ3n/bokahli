@@ -294,6 +294,72 @@ describe("benchmark candidate validation", () => {
     }
   });
 
+  it("passes valid drift reports", () => {
+    const result = validateBenchmarkCandidateResult({
+      benchmarkId: "drift_detection",
+      changedFiles: [],
+      fileContents: {},
+      drift: {
+        detected: true,
+        summary: "Docs and config disagree.",
+        expected: "5",
+        observed: "3",
+        evidenceFiles: ["README.md", "scintilla.config.json"]
+      }
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.candidate.drift?.detected).toBe(true);
+    }
+  });
+
+  it("fails unsafe drift evidence path", () => {
+    const result = validateBenchmarkCandidateResult({
+      benchmarkId: "drift_detection",
+      changedFiles: [],
+      fileContents: {},
+      drift: {
+        detected: true,
+        summary: "Docs and config disagree.",
+        evidenceFiles: ["../README.md"]
+      }
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors).toEqual(expect.arrayContaining([expect.objectContaining({ code: "path_traversal", path: "$.drift.evidenceFiles[0]" })]));
+    }
+  });
+
+  it("fails malformed drift shape", () => {
+    const result = validateBenchmarkCandidateResult({
+      benchmarkId: "drift_detection",
+      changedFiles: [],
+      fileContents: {},
+      drift: {
+        detected: "yes",
+        summary: "",
+        expected: 5,
+        observed: 3,
+        evidenceFiles: "README.md"
+      }
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ code: "invalid_drift_detected" }),
+          expect.objectContaining({ code: "required_drift_summary" }),
+          expect.objectContaining({ code: "invalid_drift_expected" }),
+          expect.objectContaining({ code: "invalid_drift_observed" }),
+          expect.objectContaining({ code: "required_drift_evidence_files" })
+        ])
+      );
+    }
+  });
+
   it("ignores unsupported extra fields", () => {
     const result = validateBenchmarkCandidateResult(
       {

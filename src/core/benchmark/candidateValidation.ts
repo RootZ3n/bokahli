@@ -300,6 +300,76 @@ export function validateBenchmarkCandidateResult(candidate: unknown, options: Ca
     }
   }
 
+  const drift = candidate["drift"];
+  if (drift !== undefined) {
+    if (!isPlainObject(drift)) {
+      errors.push({
+        path: "$.drift",
+        code: "invalid_drift",
+        message: "drift must be an object when present"
+      });
+    } else {
+      const detected = drift["detected"];
+      if (typeof detected !== "boolean") {
+        errors.push({
+          path: "$.drift.detected",
+          code: "invalid_drift_detected",
+          message: "drift detected must be a boolean"
+        });
+      }
+
+      const summary = drift["summary"];
+      if (typeof summary !== "string" || summary.length === 0) {
+        errors.push({
+          path: "$.drift.summary",
+          code: "required_drift_summary",
+          message: "drift summary is required and must be a non-empty string"
+        });
+      }
+
+      const expected = drift["expected"];
+      if (expected !== undefined && typeof expected !== "string") {
+        errors.push({
+          path: "$.drift.expected",
+          code: "invalid_drift_expected",
+          message: "drift expected must be a string when present"
+        });
+      }
+
+      const observed = drift["observed"];
+      if (observed !== undefined && typeof observed !== "string") {
+        errors.push({
+          path: "$.drift.observed",
+          code: "invalid_drift_observed",
+          message: "drift observed must be a string when present"
+        });
+      }
+
+      const evidenceFiles = drift["evidenceFiles"];
+      if (!Array.isArray(evidenceFiles)) {
+        errors.push({
+          path: "$.drift.evidenceFiles",
+          code: "required_drift_evidence_files",
+          message: "drift evidenceFiles is required and must be an array of relative paths"
+        });
+      } else {
+        evidenceFiles.forEach((file, index) => {
+          const errorPath = `$.drift.evidenceFiles[${index}]`;
+          if (typeof file !== "string") {
+            errors.push({
+              path: errorPath,
+              code: "invalid_drift_evidence_file",
+              message: "drift evidenceFiles entries must be strings"
+            });
+            return;
+          }
+
+          validateRelativePath(file, errorPath, errors);
+        });
+      }
+    }
+  }
+
   if (errors.length > 0) {
     return { ok: false, errors };
   }
@@ -312,7 +382,8 @@ export function validateBenchmarkCandidateResult(candidate: unknown, options: Ca
       fileContents: fileContents as Readonly<Record<string, string>>,
       notes: notes as readonly string[] | undefined,
       evidence: evidence as BenchmarkCandidateResult["evidence"],
-      audit: audit as BenchmarkCandidateResult["audit"]
+      audit: audit as BenchmarkCandidateResult["audit"],
+      drift: drift as BenchmarkCandidateResult["drift"]
     }
   };
 }

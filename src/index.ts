@@ -7,6 +7,7 @@ export {
 } from "./core/benchmark/evaluateBenchmark.js";
 export { verifyConfigSingleFileEdit } from "./core/benchmark/configSingleFileEditVerifier.js";
 export { verifyContextRetrievalOnly } from "./core/benchmark/contextRetrievalOnlyVerifier.js";
+export { verifyDriftDetection } from "./core/benchmark/driftDetectionVerifier.js";
 export { verifyScopeViolationDetection } from "./core/benchmark/scopeViolationDetectionVerifier.js";
 export {
   loadCandidateResultFromFile,
@@ -26,10 +27,12 @@ export {
   benchmarkFixtures,
   configSingleFileEditFixture,
   contextRetrievalOnlyFixture,
+  driftDetectionFixture,
   docsSingleFileEditFixture,
   scopeViolationDetectionFixture,
   type BenchmarkAuditVerdict,
   type BenchmarkCandidateAudit,
+  type BenchmarkCandidateDrift,
   type BenchmarkCandidateEvidence,
   type BenchmarkCandidateResult,
   type BenchmarkFixtureMetadata,

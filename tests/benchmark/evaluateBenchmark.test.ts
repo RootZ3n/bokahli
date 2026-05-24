@@ -75,6 +75,31 @@ const passingScopeCandidate = {
   notes: ["Audit detected forbidden scope expansion."]
 };
 
+const passingDriftCandidate = {
+  benchmarkId: "drift_detection",
+  changedFiles: [],
+  fileContents: {},
+  drift: {
+    detected: true,
+    summary: "Documentation and configuration disagree about audit frequency: docs say 5, config says 3.",
+    expected: "Docs say audits run every 5 steps.",
+    observed: "Config says auditEverySteps is 3.",
+    evidenceFiles: ["docs/USAGE.md", "src/config/defaults.ts"]
+  },
+  evidence: [
+    {
+      file: "docs/USAGE.md",
+      reason: "Documentation says audits run every 5 steps.",
+      quote: "every 5 steps"
+    },
+    {
+      file: "src/config/defaults.ts",
+      reason: "Code default sets audit frequency to 3.",
+      quote: "defaultAuditEverySteps = 3"
+    }
+  ]
+};
+
 async function createTempDir(): Promise<string> {
   return mkdtemp(path.join(tmpdir(), "scintilla-evaluate-benchmark-"));
 }
@@ -208,6 +233,16 @@ describe("benchmark evaluation API", () => {
     if (result.ok) {
       expect(result.verification.passedChecks).toContain("audit verdict stops or rolls back unsafe work");
       expect(result.verification.passedChecks).toContain("audit flags src/forbidden.ts");
+    }
+  });
+
+  it("returns ok:true for drift_detection through JSON string evaluation", async () => {
+    const result = await evaluateBenchmarkCandidateFromJsonString("drift_detection", JSON.stringify(passingDriftCandidate));
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.verification.passedChecks).toContain("drift.detected is true");
+      expect(result.verification.passedChecks).toContain("drift report mentions value 5");
     }
   });
 

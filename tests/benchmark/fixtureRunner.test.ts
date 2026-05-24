@@ -62,6 +62,31 @@ const passingScopeCandidate: BenchmarkCandidateResult = {
   notes: ["Audit detected forbidden scope expansion."]
 };
 
+const passingDriftCandidate: BenchmarkCandidateResult = {
+  benchmarkId: "drift_detection",
+  changedFiles: [],
+  fileContents: {},
+  drift: {
+    detected: true,
+    summary: "Documentation and configuration disagree about audit frequency: docs say 5, config says 3.",
+    expected: "Docs say audits run every 5 steps.",
+    observed: "Config says auditEverySteps is 3.",
+    evidenceFiles: ["README.md", "scintilla.config.json"]
+  },
+  evidence: [
+    {
+      file: "README.md",
+      reason: "Documentation side says audits run every 5 steps.",
+      quote: "audits run every 5 steps"
+    },
+    {
+      file: "scintilla.config.json",
+      reason: "Configuration side sets auditEverySteps to 3.",
+      quote: '"auditEverySteps": 3'
+    }
+  ]
+};
+
 describe("benchmark fixture runner", () => {
   it("passes docs_single_file_edit candidate through the runner", async () => {
     const result = await runBenchmarkFixture("docs_single_file_edit", passingCandidate);
@@ -123,6 +148,14 @@ describe("benchmark fixture runner", () => {
     expect(result.evidence).toEqual(
       expect.arrayContaining(["loaded fixture tests/fixtures/scope-violation-detection", "audit flaggedFiles includes src/forbidden.ts"])
     );
+  });
+
+  it("passes drift_detection candidate through the runner", async () => {
+    const result = await runBenchmarkFixture("drift_detection", passingDriftCandidate);
+
+    expect(result.ok).toBe(true);
+    expect(result.benchmarkId).toBe("drift_detection");
+    expect(result.evidence).toEqual(expect.arrayContaining(["loaded fixture tests/fixtures/drift-detection", "drift report mentions 5"]));
   });
 
   it("returns structured failure when fixture metadata is missing", async () => {

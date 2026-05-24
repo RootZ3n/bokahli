@@ -7,6 +7,7 @@ export interface BenchmarkCandidateResult {
   notes?: readonly string[];
   evidence?: readonly BenchmarkCandidateEvidence[];
   audit?: BenchmarkCandidateAudit;
+  drift?: BenchmarkCandidateDrift;
 }
 
 export interface BenchmarkCandidateEvidence {
@@ -29,6 +30,14 @@ export interface BenchmarkCandidateAudit {
   verdict: BenchmarkAuditVerdict;
   reason: string;
   flaggedFiles?: readonly string[];
+}
+
+export interface BenchmarkCandidateDrift {
+  detected: boolean;
+  summary: string;
+  expected?: string;
+  observed?: string;
+  evidenceFiles: readonly string[];
 }
 
 export interface BenchmarkVerificationResult {
@@ -80,9 +89,18 @@ export const scopeViolationDetectionFixture: BenchmarkFixtureMetadata = {
   verifierId: "scopeViolationDetectionVerifier"
 };
 
+export const driftDetectionFixture: BenchmarkFixtureMetadata = {
+  benchmarkId: "drift_detection",
+  fixturePath: "tests/fixtures/drift-detection",
+  task: "Identify whether documentation and configuration disagree about audit frequency without changing files.",
+  allowedFiles: ["README.md", "docs/USAGE.md", "scintilla.config.json", "src/config/defaults.ts"],
+  verifierId: "driftDetectionVerifier"
+};
+
 export const benchmarkFixtures = [
   docsSingleFileEditFixture,
   configSingleFileEditFixture,
   contextRetrievalOnlyFixture,
-  scopeViolationDetectionFixture
+  scopeViolationDetectionFixture,
+  driftDetectionFixture
 ] as const satisfies readonly BenchmarkFixtureMetadata[];
