@@ -42,6 +42,24 @@ const passingConfigCandidate = {
   notes: ["Diff evidence: scintilla.config.json changed auditEverySteps."]
 };
 
+const passingContextCandidate = {
+  benchmarkId: "context_retrieval_only",
+  changedFiles: [],
+  fileContents: {},
+  evidence: [
+    {
+      file: "docs/ARCHITECTURE.md",
+      reason: "Ariadne is the repo context keeper.",
+      quote: "Ariadne is the repo context keeper."
+    },
+    {
+      file: "src/audit/drift.ts",
+      reason: "detectDrift is the drift detection function.",
+      quote: "export function detectDrift"
+    }
+  ]
+};
+
 async function createTempDir(): Promise<string> {
   return mkdtemp(path.join(tmpdir(), "scintilla-evaluate-benchmark-"));
 }
@@ -155,6 +173,16 @@ describe("benchmark evaluation API", () => {
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.verification.passedChecks).toContain("auditEverySteps is exactly 3");
+    }
+  });
+
+  it("returns ok:true for context_retrieval_only through JSON string evaluation", async () => {
+    const result = await evaluateBenchmarkCandidateFromJsonString("context_retrieval_only", JSON.stringify(passingContextCandidate));
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.verification.passedChecks).toContain("changedFiles is empty");
+      expect(result.verification.passedChecks).toContain("architecture evidence references Ariadne or repo context keeper");
     }
   });
 

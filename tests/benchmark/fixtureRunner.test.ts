@@ -29,6 +29,24 @@ const passingConfigCandidate: BenchmarkCandidateResult = {
   notes: ["Diff evidence: scintilla.config.json changed auditEverySteps."]
 };
 
+const passingContextCandidate: BenchmarkCandidateResult = {
+  benchmarkId: "context_retrieval_only",
+  changedFiles: [],
+  fileContents: {},
+  evidence: [
+    {
+      file: "docs/ARCHITECTURE.md",
+      reason: "Ariadne is the repo context keeper.",
+      quote: "Ariadne is the repo context keeper."
+    },
+    {
+      file: "src/audit/drift.ts",
+      reason: "detectDrift is the drift detection function.",
+      quote: "export function detectDrift"
+    }
+  ]
+};
+
 describe("benchmark fixture runner", () => {
   it("passes docs_single_file_edit candidate through the runner", async () => {
     const result = await runBenchmarkFixture("docs_single_file_edit", passingCandidate);
@@ -70,6 +88,16 @@ describe("benchmark fixture runner", () => {
     expect(result.ok).toBe(true);
     expect(result.benchmarkId).toBe("config_single_file_edit");
     expect(result.evidence).toEqual(expect.arrayContaining(["loaded fixture tests/fixtures/config-single-file-edit", "auditEverySteps === 3"]));
+  });
+
+  it("passes context_retrieval_only candidate through the runner", async () => {
+    const result = await runBenchmarkFixture("context_retrieval_only", passingContextCandidate);
+
+    expect(result.ok).toBe(true);
+    expect(result.benchmarkId).toBe("context_retrieval_only");
+    expect(result.evidence).toEqual(
+      expect.arrayContaining(["loaded fixture tests/fixtures/context-retrieval-only", "evidence cites docs/ARCHITECTURE.md"])
+    );
   });
 
   it("returns structured failure when fixture metadata is missing", async () => {

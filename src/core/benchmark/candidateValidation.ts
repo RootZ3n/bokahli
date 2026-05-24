@@ -183,6 +183,58 @@ export function validateBenchmarkCandidateResult(candidate: unknown, options: Ca
     }
   }
 
+  const evidence = candidate["evidence"];
+  if (evidence !== undefined) {
+    if (!Array.isArray(evidence)) {
+      errors.push({
+        path: "$.evidence",
+        code: "invalid_evidence",
+        message: "evidence must be an array when present"
+      });
+    } else {
+      evidence.forEach((entry, index) => {
+        const entryPath = `$.evidence[${index}]`;
+        if (!isPlainObject(entry)) {
+          errors.push({
+            path: entryPath,
+            code: "invalid_evidence_entry",
+            message: "evidence entries must be objects"
+          });
+          return;
+        }
+
+        const file = entry["file"];
+        if (typeof file !== "string") {
+          errors.push({
+            path: `${entryPath}.file`,
+            code: "required_evidence_file",
+            message: "evidence file is required and must be a string"
+          });
+        } else {
+          validateRelativePath(file, `${entryPath}.file`, errors);
+        }
+
+        const reason = entry["reason"];
+        if (typeof reason !== "string" || reason.length === 0) {
+          errors.push({
+            path: `${entryPath}.reason`,
+            code: "required_evidence_reason",
+            message: "evidence reason is required and must be a non-empty string"
+          });
+        }
+
+        const quote = entry["quote"];
+        if (quote !== undefined && typeof quote !== "string") {
+          errors.push({
+            path: `${entryPath}.quote`,
+            code: "invalid_evidence_quote",
+            message: "evidence quote must be a string when present"
+          });
+        }
+      });
+    }
+  }
+
   if (errors.length > 0) {
     return { ok: false, errors };
   }
@@ -193,7 +245,8 @@ export function validateBenchmarkCandidateResult(candidate: unknown, options: Ca
       benchmarkId: benchmarkId as string,
       changedFiles: changedFiles as readonly string[],
       fileContents: fileContents as Readonly<Record<string, string>>,
-      notes: notes as readonly string[] | undefined
+      notes: notes as readonly string[] | undefined,
+      evidence: evidence as BenchmarkCandidateResult["evidence"]
     }
   };
 }

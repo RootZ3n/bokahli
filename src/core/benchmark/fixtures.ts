@@ -5,6 +5,13 @@ export interface BenchmarkCandidateResult {
   changedFiles: readonly string[];
   fileContents: Readonly<Record<string, string>>;
   notes?: readonly string[];
+  evidence?: readonly BenchmarkCandidateEvidence[];
+}
+
+export interface BenchmarkCandidateEvidence {
+  file: string;
+  quote?: string;
+  reason: string;
 }
 
 export interface BenchmarkVerificationResult {
@@ -40,4 +47,16 @@ export const configSingleFileEditFixture: BenchmarkFixtureMetadata = {
   verifierId: "configSingleFileEditVerifier"
 };
 
-export const benchmarkFixtures = [docsSingleFileEditFixture, configSingleFileEditFixture] as const satisfies readonly BenchmarkFixtureMetadata[];
+export const contextRetrievalOnlyFixture: BenchmarkFixtureMetadata = {
+  benchmarkId: "context_retrieval_only",
+  fixturePath: "tests/fixtures/context-retrieval-only",
+  task: "Identify which files explain the repo context keeper and the drift detection function without changing files.",
+  allowedFiles: ["README.md", "docs/ARCHITECTURE.md", "package.json", "src/audit/drift.ts", "src/context/repoMap.ts"],
+  verifierId: "contextRetrievalOnlyVerifier"
+};
+
+export const benchmarkFixtures = [
+  docsSingleFileEditFixture,
+  configSingleFileEditFixture,
+  contextRetrievalOnlyFixture
+] as const satisfies readonly BenchmarkFixtureMetadata[];

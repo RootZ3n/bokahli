@@ -164,6 +164,69 @@ describe("benchmark candidate validation", () => {
     }
   });
 
+  it("passes valid evidence entries", () => {
+    const result = validateBenchmarkCandidateResult({
+      benchmarkId: "context_retrieval_only",
+      changedFiles: [],
+      fileContents: {},
+      evidence: [
+        {
+          file: "docs/ARCHITECTURE.md",
+          reason: "Ariadne is the repo context keeper.",
+          quote: "Ariadne"
+        }
+      ]
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.candidate.evidence?.[0]?.file).toBe("docs/ARCHITECTURE.md");
+    }
+  });
+
+  it("fails unsafe evidence paths", () => {
+    const result = validateBenchmarkCandidateResult({
+      benchmarkId: "context_retrieval_only",
+      changedFiles: [],
+      fileContents: {},
+      evidence: [
+        {
+          file: "../docs/ARCHITECTURE.md",
+          reason: "unsafe"
+        }
+      ]
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors).toEqual(expect.arrayContaining([expect.objectContaining({ code: "path_traversal", path: "$.evidence[0].file" })]));
+    }
+  });
+
+  it("fails malformed evidence shape", () => {
+    const result = validateBenchmarkCandidateResult({
+      benchmarkId: "context_retrieval_only",
+      changedFiles: [],
+      fileContents: {},
+      evidence: [
+        {
+          file: "docs/ARCHITECTURE.md",
+          quote: 123
+        }
+      ]
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ code: "required_evidence_reason" }),
+          expect.objectContaining({ code: "invalid_evidence_quote" })
+        ])
+      );
+    }
+  });
+
   it("ignores unsupported extra fields", () => {
     const result = validateBenchmarkCandidateResult(
       {

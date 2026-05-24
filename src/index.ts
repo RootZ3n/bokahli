@@ -6,6 +6,7 @@ export {
   type BenchmarkEvaluationResult
 } from "./core/benchmark/evaluateBenchmark.js";
 export { verifyConfigSingleFileEdit } from "./core/benchmark/configSingleFileEditVerifier.js";
+export { verifyContextRetrievalOnly } from "./core/benchmark/contextRetrievalOnlyVerifier.js";
 export {
   loadCandidateResultFromFile,
   loadCandidateResultFromJsonString,
@@ -23,7 +24,9 @@ export { runBenchmarkFixture, type BenchmarkFixtureRunnerOptions, type Benchmark
 export {
   benchmarkFixtures,
   configSingleFileEditFixture,
+  contextRetrievalOnlyFixture,
   docsSingleFileEditFixture,
+  type BenchmarkCandidateEvidence,
   type BenchmarkCandidateResult,
   type BenchmarkFixtureMetadata,
   type BenchmarkVerificationResult
