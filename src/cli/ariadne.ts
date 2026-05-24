@@ -1,6 +1,13 @@
-import { buildContextPacket, type ContextPacket, type ContextPacketPromptQuality } from "../core/context/contextPacket.js";
+import {
+  buildContextPacket,
+  buildContextPacketFromContract,
+  TaskContractPacketValidationError,
+  type ContextPacket,
+  type ContextPacketPromptQuality
+} from "../core/context/contextPacket.js";
 import { buildRepoContextMap, type RepoContextMap } from "../core/context/repoMap.js";
 import { scanRepoContext } from "../core/context/repoScanner.js";
+import { loadTaskContractFromFile, TaskContractLoadError } from "../core/contracts/loader.js";
 
 export interface AriadneScanCliResult {
   exitCode: 0 | 2;
@@ -17,12 +24,13 @@ interface ParsedScanArgs {
 
 interface ParsedPacketArgs {
   repo: string;
-  taskType: string;
-  goal: string;
+  taskType?: string;
+  goal?: string;
   selectedPaths: string[];
   allowedFiles: string[];
   forbiddenFiles: string[];
   verificationRequired: string[];
+  contractPath?: string;
   benchmarkId?: string;
   promptQuality?: ContextPacketPromptQuality;
   maxBytesPerFile?: number;
@@ -41,10 +49,12 @@ Options:
 
 const packetUsage = `Usage:
   scintilla ariadne packet --repo <path> --task-type <type> --goal <text> --allowed-file <path> --select <path> [options]
+  scintilla ariadne packet --repo <path> --contract <path> [--select <path>] [options]
   scintilla ariadne packet --help
 
 Options:
   --repo <path>                     Repository root to scan.
+  --contract <path>                 TaskContract JSON file to use for task metadata.
   --task-type <type>                Task type label for the context packet.
   --goal <text>                     Task goal for the worker.
   --select <path>                   Relative path to preview. Can be repeated.
@@ -150,6 +160,7 @@ function parsePacketArgs(args: readonly string[]): ParsedPacketArgs | AriadnePac
   let repo: string | undefined;
   let taskType: string | undefined;
   let goal: string | undefined;
+  let contractPath: string | undefined;
   let benchmarkId: string | undefined;
   let promptQuality: ContextPacketPromptQuality | undefined;
   let maxBytesPerFile: number | undefined;
@@ -176,6 +187,7 @@ function parsePacketArgs(args: readonly string[]): ParsedPacketArgs | AriadnePac
 
     const valueFlags = new Set([
       "--repo",
+      "--contract",
       "--task-type",
       "--goal",
       "--select",
@@ -197,6 +209,8 @@ function parsePacketArgs(args: readonly string[]): ParsedPacketArgs | AriadnePac
 
       if (arg === "--repo") {
         repo = value;
+      } else if (arg === "--contract") {
+        contractPath = value;
       } else if (arg === "--task-type") {
         taskType = value;
       } else if (arg === "--goal") {
@@ -250,17 +264,20 @@ function parsePacketArgs(args: readonly string[]): ParsedPacketArgs | AriadnePac
   if (repo === undefined) {
     return usageResult("--repo is required", packetUsage);
   }
-  if (taskType === undefined) {
-    return usageResult("--task-type is required", packetUsage);
-  }
-  if (goal === undefined) {
-    return usageResult("--goal is required", packetUsage);
-  }
-  if (selectedPaths.length === 0) {
-    return usageResult("--select is required at least once", packetUsage);
-  }
-  if (allowedFiles.length === 0) {
-    return usageResult("--allowed-file is required at least once", packetUsage);
+
+  if (contractPath === undefined) {
+    if (taskType === undefined) {
+      return usageResult("--task-type is required", packetUsage);
+    }
+    if (goal === undefined) {
+      return usageResult("--goal is required", packetUsage);
+    }
+    if (selectedPaths.length === 0) {
+      return usageResult("--select is required at least once", packetUsage);
+    }
+    if (allowedFiles.length === 0) {
+      return usageResult("--allowed-file is required at least once", packetUsage);
+    }
   }
 
   return {
@@ -271,6 +288,7 @@ function parsePacketArgs(args: readonly string[]): ParsedPacketArgs | AriadnePac
     allowedFiles,
     forbiddenFiles,
     verificationRequired,
+    contractPath,
     benchmarkId,
     promptQuality,
     maxBytesPerFile,
@@ -341,6 +359,23 @@ export async function runAriadnePacketCli(args: readonly string[]): Promise<Aria
     return parsedArgs;
   }
 
+  let contract;
+  if (parsedArgs.contractPath !== undefined) {
+    try {
+      contract = await loadTaskContractFromFile(parsedArgs.contractPath);
+    } catch (error) {
+      if (error instanceof TaskContractLoadError) {
+        return {
+          exitCode: 2,
+          stdout: "",
+          stderr: error.errors.map((entry) => `${entry.code} ${entry.path}: ${entry.message}`).join("\n") + "\n"
+        };
+      }
+
+      throw error;
+    }
+  }
+
   const snapshot = await scanRepoContext(parsedArgs.repo);
   const rootWarnings = snapshot.warnings.filter((warning) => rootErrorCodes.has(warning.code));
   if (rootWarnings.length > 0) {
@@ -352,25 +387,48 @@ export async function runAriadnePacketCli(args: readonly string[]): Promise<Aria
   }
 
   const repoMap = buildRepoContextMap(snapshot);
-  const packet: ContextPacket = await buildContextPacket({
-    repoRoot: parsedArgs.repo,
-    repoMap,
-    task: {
-      benchmarkId: parsedArgs.benchmarkId,
-      taskType: parsedArgs.taskType,
-      promptQuality: parsedArgs.promptQuality,
-      goal: parsedArgs.goal,
-      allowedFiles: parsedArgs.allowedFiles,
-      forbiddenFiles: parsedArgs.forbiddenFiles,
-      verificationRequired: parsedArgs.verificationRequired
-    },
-    selectedPaths: parsedArgs.selectedPaths,
-    budgets: {
-      maxBytesPerFile: parsedArgs.maxBytesPerFile,
-      maxTotalPreviewBytes: parsedArgs.maxTotalPreviewBytes,
-      maxPacketChars: parsedArgs.maxPacketChars
+  const budgets = {
+    maxBytesPerFile: parsedArgs.maxBytesPerFile,
+    maxTotalPreviewBytes: parsedArgs.maxTotalPreviewBytes,
+    maxPacketChars: parsedArgs.maxPacketChars
+  };
+  let packet: ContextPacket;
+  try {
+    packet =
+      contract === undefined
+        ? await buildContextPacket({
+            repoRoot: parsedArgs.repo,
+            repoMap,
+            task: {
+              benchmarkId: parsedArgs.benchmarkId,
+              taskType: parsedArgs.taskType as string,
+              promptQuality: parsedArgs.promptQuality,
+              goal: parsedArgs.goal as string,
+              allowedFiles: parsedArgs.allowedFiles,
+              forbiddenFiles: parsedArgs.forbiddenFiles,
+              verificationRequired: parsedArgs.verificationRequired
+            },
+            selectedPaths: parsedArgs.selectedPaths,
+            budgets
+          })
+        : await buildContextPacketFromContract({
+            repoRoot: parsedArgs.repo,
+            repoMap,
+            contract,
+            selectedPaths: parsedArgs.selectedPaths.length === 0 ? undefined : parsedArgs.selectedPaths,
+            budgets
+          });
+  } catch (error) {
+    if (error instanceof TaskContractPacketValidationError) {
+      return {
+        exitCode: 2,
+        stdout: "",
+        stderr: error.errors.map((entry) => `${entry.code} ${entry.path}: ${entry.message}`).join("\n") + "\n"
+      };
     }
-  });
+
+    throw error;
+  }
 
   return {
     exitCode: 0,

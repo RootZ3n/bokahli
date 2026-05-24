@@ -1,6 +1,8 @@
 import type { FilePreview, FilePreviewSkip } from "./filePreview.js";
 import { previewRepoFiles } from "./filePreview.js";
 import type { RepoContextMap } from "./repoMap.js";
+import type { TaskContract, TaskContractValidationError } from "../contracts/types.js";
+import { validateTaskContract } from "../contracts/validator.js";
 
 export type ContextPacketPromptQuality = "P0" | "P1" | "P2" | "P3" | "P4";
 
@@ -24,6 +26,14 @@ export interface ContextPacketInput {
     readonly maxTotalPreviewBytes?: number;
     readonly maxPacketChars?: number;
   };
+}
+
+export interface ContextPacketFromContractInput {
+  readonly repoRoot: string;
+  readonly repoMap: RepoContextMap;
+  readonly contract: TaskContract;
+  readonly selectedPaths?: readonly string[];
+  readonly budgets?: ContextPacketInput["budgets"];
 }
 
 export interface ContextPacket {
@@ -63,6 +73,16 @@ export interface ContextPacket {
 
 const defaultMaxBytesPerFile = 8 * 1024;
 const defaultMaxTotalPreviewBytes = 32 * 1024;
+
+export class TaskContractPacketValidationError extends Error {
+  readonly errors: readonly TaskContractValidationError[];
+
+  constructor(errors: readonly TaskContractValidationError[]) {
+    super("TaskContract failed validation");
+    this.name = "TaskContractPacketValidationError";
+    this.errors = errors;
+  }
+}
 
 type MutableContextPacket = {
   generatedAt: string;
@@ -201,4 +221,28 @@ export async function buildContextPacket(input: ContextPacketInput): Promise<Con
   applyPacketCharBudget(packet, input.budgets?.maxPacketChars);
 
   return packet;
+}
+
+export async function buildContextPacketFromContract(input: ContextPacketFromContractInput): Promise<ContextPacket> {
+  const validation = validateTaskContract(input.contract);
+  if (!validation.ok) {
+    throw new TaskContractPacketValidationError(validation.errors);
+  }
+
+  const contract = validation.contract;
+  return buildContextPacket({
+    repoRoot: input.repoRoot,
+    repoMap: input.repoMap,
+    task: {
+      benchmarkId: contract.benchmarkId,
+      taskType: contract.taskType,
+      promptQuality: contract.promptQuality,
+      goal: contract.goal,
+      allowedFiles: contract.allowedFiles,
+      forbiddenFiles: contract.forbiddenFiles,
+      verificationRequired: contract.verificationRequired
+    },
+    selectedPaths: input.selectedPaths ?? contract.allowedFiles,
+    budgets: input.budgets
+  });
 }

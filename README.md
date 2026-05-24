@@ -65,6 +65,7 @@ Build a context packet from the CLI:
 
 ```sh
 pnpm ariadne:packet -- --repo tests/fixtures/simple-ts-repo --task-type patch_one_file --goal "Update README usage text" --allowed-file README.md --select README.md --verification "pnpm test" --json
+pnpm ariadne:packet -- --repo tests/fixtures/simple-ts-repo --contract examples/contracts/readme_patch_one_file.contract.json --json
 ```
 
 Example Ariadne context packet JSON templates live in `examples/context-packets/`.

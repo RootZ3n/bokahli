@@ -131,6 +131,12 @@ These examples are not model outputs yet. They do not prove a model can generate
 
 `examples/context-packets/manifest.json` is the machine-readable index for tooling and future Aedis integration. It maps each packet template to its task type, goal, selected paths, and allowed files so tools do not need to parse filenames.
 
+`examples/contracts/readme_patch_one_file.contract.json` is a matching TaskContract example that can drive packet creation directly:
+
+```sh
+pnpm ariadne:packet -- --repo tests/fixtures/simple-ts-repo --contract examples/contracts/readme_patch_one_file.contract.json --json
+```
+
 List context packet templates with:
 
 ```sh

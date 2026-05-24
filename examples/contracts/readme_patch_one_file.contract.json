@@ -1,0 +1,9 @@
+{
+  "id": "readme_patch_one_file",
+  "taskType": "patch_one_file",
+  "promptQuality": "P0",
+  "goal": "Update README usage text",
+  "allowedFiles": ["README.md"],
+  "forbiddenFiles": ["package.json"],
+  "verificationRequired": ["pnpm test"]
+}

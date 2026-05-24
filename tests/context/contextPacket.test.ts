@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   buildContextPacket,
+  buildContextPacketFromContract,
   buildRepoContextMap,
   scanRepoContext,
   type ContextPacket,
   type ContextPacketInput,
+  TaskContractPacketValidationError,
   type RepoContextMap
 } from "../../src/index.js";
 
@@ -231,5 +233,91 @@ describe("Ariadne context packet builder", () => {
     expect(packet.truncation.packetTruncated).toBe(true);
     expect(packet.repoSummary.sections.other.length).toBeLessThan(500);
     expect(packet.selectedPreviews[0]?.text).toContain("Simple TS Repo");
+  });
+
+  it("builds a packet from a valid TaskContract", async () => {
+    const input = await createInput();
+    const packet = await buildContextPacketFromContract({
+      repoRoot: input.repoRoot,
+      repoMap: input.repoMap,
+      contract: {
+        id: "readme_patch_one_file",
+        taskType: "patch_one_file",
+        promptQuality: "P0",
+        goal: "Update README usage text",
+        allowedFiles: ["README.md"],
+        forbiddenFiles: ["package.json"],
+        verificationRequired: ["pnpm test"]
+      }
+    });
+
+    expect(packet.task.taskType).toBe("patch_one_file");
+    expect(packet.task.goal).toBe("Update README usage text");
+    expect(packet.selectedPreviews.map((preview) => preview.path)).toEqual(["README.md"]);
+  });
+
+  it("invalid TaskContract fails before previews are read", async () => {
+    const input = await createInput();
+
+    await expect(
+      buildContextPacketFromContract({
+        repoRoot: "tests/fixtures/does-not-exist",
+        repoMap: input.repoMap,
+        contract: {
+          taskType: "patch_one_file",
+          goal: "Update README usage text",
+          allowedFiles: ["/README.md"]
+        }
+      })
+    ).rejects.toBeInstanceOf(TaskContractPacketValidationError);
+  });
+
+  it("contract selectedPaths default to allowedFiles", async () => {
+    const input = await createInput();
+    const packet = await buildContextPacketFromContract({
+      repoRoot: input.repoRoot,
+      repoMap: input.repoMap,
+      contract: {
+        taskType: "patch_one_file",
+        goal: "Update README usage text",
+        allowedFiles: ["README.md"]
+      }
+    });
+
+    expect(packet.selectedPreviews.map((preview) => preview.path)).toEqual(["README.md"]);
+  });
+
+  it("contract forbidden paths and verification requirements are carried into the packet", async () => {
+    const input = await createInput();
+    const packet = await buildContextPacketFromContract({
+      repoRoot: input.repoRoot,
+      repoMap: input.repoMap,
+      contract: {
+        taskType: "patch_one_file",
+        goal: "Update README usage text",
+        allowedFiles: ["README.md"],
+        forbiddenFiles: ["package.json"],
+        verificationRequired: ["pnpm test"]
+      }
+    });
+
+    expect(packet.constraints.forbiddenFiles).toEqual(["package.json"]);
+    expect(packet.task.verificationRequired).toEqual(["pnpm test"]);
+  });
+
+  it("contract mode still sets packet authority constraints", async () => {
+    const input = await createInput();
+    const packet = await buildContextPacketFromContract({
+      repoRoot: input.repoRoot,
+      repoMap: input.repoMap,
+      contract: {
+        taskType: "patch_one_file",
+        goal: "Update README usage text",
+        allowedFiles: ["README.md"]
+      }
+    });
+
+    expect(packet.constraints.workerAuthority).toBe("propose_only");
+    expect(packet.constraints.verifierDeterminesTruth).toBe(true);
   });
 });

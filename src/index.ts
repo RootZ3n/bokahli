@@ -87,11 +87,27 @@ export {
 } from "./core/context/filePreview.js";
 export {
   buildContextPacket,
+  buildContextPacketFromContract,
+  TaskContractPacketValidationError,
   type ContextPacket,
+  type ContextPacketFromContractInput,
   type ContextPacketInput,
   type ContextPacketPromptQuality,
   type ContextPacketTask
 } from "./core/context/contextPacket.js";
+export {
+  loadTaskContractFromFile,
+  TaskContractLoadError
+} from "./core/contracts/loader.js";
+export {
+  validateTaskContract
+} from "./core/contracts/validator.js";
+export {
+  type TaskContract,
+  type TaskContractPromptQuality,
+  type TaskContractValidationError,
+  type TaskContractValidationResult
+} from "./core/contracts/types.js";
 export {
   type RepoContextFileEntry,
   type RepoContextSnapshot,

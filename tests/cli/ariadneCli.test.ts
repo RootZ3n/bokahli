@@ -281,6 +281,65 @@ describe("Ariadne packet CLI", () => {
     expect(packet.skippedPreviews).toEqual([expect.objectContaining({ path: "../README.md", reason: "path traversal is not allowed" })]);
   });
 
+  it("contract mode emits valid packet JSON", async () => {
+    const result = await runAriadnePacketCli([
+      "--repo",
+      fixtureRoot,
+      "--contract",
+      "examples/contracts/readme_patch_one_file.contract.json",
+      "--json"
+    ]);
+    const packet = JSON.parse(result.stdout) as ContextPacket;
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(packet.task.taskType).toBe("patch_one_file");
+    expect(packet.task.goal).toBe("Update README usage text");
+    expect(packet.constraints.allowedFiles).toEqual(["README.md"]);
+    expect(packet.constraints.forbiddenFiles).toEqual(["package.json"]);
+    expect(packet.task.verificationRequired).toEqual(["pnpm test"]);
+    expect(packet.selectedPreviews.map((preview) => preview.path)).toEqual(["README.md"]);
+    expect(packet.constraints.workerAuthority).toBe("propose_only");
+    expect(packet.constraints.verifierDeterminesTruth).toBe(true);
+  });
+
+  it("contract mode allows explicit selected path override", async () => {
+    const result = await runAriadnePacketCli([
+      "--repo",
+      fixtureRoot,
+      "--contract",
+      "examples/contracts/readme_patch_one_file.contract.json",
+      "--select",
+      "src/index.ts",
+      "--json"
+    ]);
+    const packet = JSON.parse(result.stdout) as ContextPacket;
+
+    expect(result.exitCode).toBe(0);
+    expect(packet.selectedPreviews.map((preview) => preview.path)).toEqual(["src/index.ts"]);
+    expect(packet.constraints.allowedFiles).toEqual(["README.md"]);
+  });
+
+  it("invalid contract exits 2 before packet output", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "scintilla-ariadne-contract-"));
+    const contractPath = path.join(dir, "invalid.contract.json");
+    await writeFile(
+      contractPath,
+      JSON.stringify({
+        taskType: "patch_one_file",
+        goal: "Update README usage text",
+        allowedFiles: ["/README.md"]
+      }),
+      "utf8"
+    );
+
+    const result = await runAriadnePacketCli(["--repo", fixtureRoot, "--contract", contractPath, "--json"]);
+
+    expect(result.exitCode).toBe(2);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("unsafe_path");
+  });
+
   it("does not mutate fixture repo", async () => {
     const packagePath = path.join(fixtureRoot, "package.json");
     const before = {
