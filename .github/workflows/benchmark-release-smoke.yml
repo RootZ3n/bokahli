@@ -34,10 +34,11 @@ jobs:
       - name: Write JSON smoke report
         run: pnpm benchmark:release-smoke -- --json > benchmark-release-smoke.json
 
-      - name: Upload smoke reports
+      - name: Upload deterministic benchmark and Ariadne smoke reports
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-release-smoke
           path: |
             benchmark-release-smoke.txt
             benchmark-release-smoke.json
+          if-no-files-found: error

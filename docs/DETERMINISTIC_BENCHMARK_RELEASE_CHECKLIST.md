@@ -131,9 +131,16 @@ pnpm benchmark:release-smoke -- --json
 
 ## CI Workflow
 
-The `Benchmark Release Smoke` GitHub Actions workflow runs deterministic benchmark plumbing only. It installs dependencies, runs `pnpm benchmark:release-smoke`, asserts the stable `SCINTILLA_BENCHMARK_PLUMBING_STATUS=BENCHMARK_PLUMBING_READY` line, writes `benchmark-release-smoke.json`, and archives the smoke reports as the `benchmark-release-smoke` artifact.
+The `Benchmark Release Smoke` GitHub Actions workflow runs deterministic benchmark plumbing plus Ariadne read-only context tooling. It installs dependencies, runs `pnpm benchmark:release-smoke`, asserts the stable `SCINTILLA_BENCHMARK_PLUMBING_STATUS=BENCHMARK_PLUMBING_READY` line, writes `benchmark-release-smoke.json`, and archives the smoke reports as the stable `benchmark-release-smoke` artifact.
 
-The workflow does not add model calls, Ollama setup, provider secrets, orchestration, benchmark generation, or real repository editing. Ariadne checks are read-only context tooling checks only.
+The artifact includes both:
+
+- `benchmark-release-smoke.txt`
+- `benchmark-release-smoke.json`
+
+The archived reports cover deterministic benchmark plumbing, candidate examples and manifests, and Ariadne read-only scan, packet, and context-packet template tooling.
+
+The workflow does not add model calls, Ollama setup, provider secrets, orchestration, Aedis integration, benchmark generation, or real repository editing. Ariadne checks are read-only context tooling checks only.
 
 ## Manifest Consistency Checks
 
