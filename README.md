@@ -58,3 +58,5 @@ pnpm ariadne:scan -- --repo tests/fixtures/simple-ts-repo --json
 ```
 
 `previewRepoFiles(root, relativePaths, options)` reads bounded UTF-8 excerpts for selected safe relative paths. It rejects absolute paths, traversal, symlinks, directories, unsupported extensions, and paths outside the repo root.
+
+`buildContextPacket(input)` combines the repo map, task constraints, and bounded selected file previews into a deterministic propose-only packet for small-model workers.

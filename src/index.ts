@@ -78,6 +78,13 @@ export {
   type FilePreviewSkip
 } from "./core/context/filePreview.js";
 export {
+  buildContextPacket,
+  type ContextPacket,
+  type ContextPacketInput,
+  type ContextPacketPromptQuality,
+  type ContextPacketTask
+} from "./core/context/contextPacket.js";
+export {
   type RepoContextFileEntry,
   type RepoContextSnapshot,
   type RepoContextWarning,
