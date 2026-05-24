@@ -1,3 +1,9 @@
+export {
+  validateBenchmarkCandidateResult,
+  type CandidateValidationError,
+  type CandidateValidationOptions,
+  type CandidateValidationResult
+} from "./core/benchmark/candidateValidation.js";
 export { runBenchmarkFixture, type BenchmarkFixtureRunnerOptions, type BenchmarkVerifier, type LoadedBenchmarkFixture } from "./core/benchmark/fixtureRunner.js";
 export {
   benchmarkFixtures,

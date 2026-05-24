@@ -111,7 +111,60 @@ describe("benchmark fixture runner", () => {
     });
 
     expect(result.ok).toBe(false);
-    expect(result.failedChecks).toContain("benchmark id must be docs_single_file_edit");
+    expect(result.failedChecks).toContain("candidate_validation");
+    expect(result.failedChecks).toContain("candidate benchmarkId does not match requested benchmarkId: docs_single_file_edit");
+    expect(result.evidence).toEqual(expect.arrayContaining(["candidate benchmarkId: config_single_file_edit", "requested benchmarkId: docs_single_file_edit"]));
+  });
+
+  it("returns malformed candidate failures before verifier dispatch", async () => {
+    let verifierCalled = false;
+    const result = await runBenchmarkFixture(
+      "docs_single_file_edit",
+      {
+        benchmarkId: "docs_single_file_edit",
+        changedFiles: "README.md",
+        fileContents: {
+          "README.md": "Use `npm run doctor`."
+        }
+      },
+      {
+        verifiers: {
+          docsSingleFileEditVerifier: () => {
+            verifierCalled = true;
+            return {
+              ok: true,
+              benchmarkId: "docs_single_file_edit",
+              passedChecks: [],
+              failedChecks: [],
+              evidence: []
+            };
+          }
+        }
+      }
+    );
+
+    expect(result.ok).toBe(false);
+    expect(verifierCalled).toBe(false);
+    expect(result.failedChecks).toContain("candidate_validation");
+  });
+
+  it("includes useful failedChecks and evidence for malformed candidates", async () => {
+    const result = await runBenchmarkFixture("docs_single_file_edit", {
+      benchmarkId: "docs_single_file_edit",
+      changedFiles: ["/README.md"],
+      fileContents: {}
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.failedChecks).toEqual(expect.arrayContaining(["candidate_validation", "absolute_path: $.changedFiles[0]"]));
+    expect(result.evidence).toEqual(expect.arrayContaining(["path must not be absolute", "fileContents must include changed file content for /README.md"]));
+  });
+
+  it("valid candidates still reach docs_single_file_edit verifier and pass", async () => {
+    const result = await runBenchmarkFixture("docs_single_file_edit", passingCandidate);
+
+    expect(result.ok).toBe(true);
+    expect(result.passedChecks).toContain('README.md mentions "npm run doctor"');
   });
 
   it("exports runner functions from public API", () => {

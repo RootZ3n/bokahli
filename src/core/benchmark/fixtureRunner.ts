@@ -1,5 +1,6 @@
 import { lstat, readFile } from "node:fs/promises";
 import path from "node:path";
+import { validateBenchmarkCandidateResult } from "./candidateValidation.js";
 import { verifyDocsSingleFileEdit } from "./docsSingleFileEditVerifier.js";
 import {
   benchmarkFixtures,
@@ -91,7 +92,7 @@ async function loadFixtureFiles(metadata: BenchmarkFixtureMetadata, fixtureRoot:
 
 export async function runBenchmarkFixture(
   benchmarkId: string,
-  candidate: BenchmarkCandidateResult,
+  candidate: unknown,
   options: BenchmarkFixtureRunnerOptions = {}
 ): Promise<BenchmarkVerificationResult> {
   const fixtures = options.fixtures ?? benchmarkFixtures;
@@ -108,6 +109,29 @@ export async function runBenchmarkFixture(
     );
   }
 
+  const validation = validateBenchmarkCandidateResult(candidate, {
+    supportedBenchmarkIds: benchmarkRegistry.map((benchmark) => benchmark.id)
+  });
+  const safeCandidateBenchmarkId =
+    typeof candidate === "object" && candidate !== null && typeof (candidate as { benchmarkId?: unknown }).benchmarkId === "string"
+      ? (candidate as { benchmarkId: string }).benchmarkId
+      : benchmarkId;
+
+  if (!validation.ok) {
+    return failedResult(
+      safeCandidateBenchmarkId,
+      ["candidate_validation", ...validation.errors.map((error) => `${error.code}: ${error.path}`)],
+      validation.errors.map((error) => error.message)
+    );
+  }
+
+  if (validation.candidate.benchmarkId !== benchmarkId) {
+    return failedResult(validation.candidate.benchmarkId, ["candidate_validation", `candidate benchmarkId does not match requested benchmarkId: ${benchmarkId}`], [
+      `candidate benchmarkId: ${validation.candidate.benchmarkId}`,
+      `requested benchmarkId: ${benchmarkId}`
+    ]);
+  }
+
   const loadedFixture = await loadFixtureFiles(metadata, fixtureRoot);
   if ("ok" in loadedFixture) {
     return loadedFixture;
@@ -118,7 +142,7 @@ export async function runBenchmarkFixture(
     return failedResult(benchmarkId, [`no verifier exists for benchmark: ${benchmarkId}`], [`missing verifier id: ${metadata.verifierId}`]);
   }
 
-  const result = await verifier(candidate, loadedFixture);
+  const result = await verifier(validation.candidate, loadedFixture);
   return {
     ...result,
     evidence: [
