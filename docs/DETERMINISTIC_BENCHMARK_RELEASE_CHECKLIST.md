@@ -112,6 +112,12 @@ The smoke script also lists mock-pipeline result fixtures through `mock-pipeline
 - `1`: benchmark verification failed
 - `2`: usage, load, validation, unknown benchmark, or benchmark mismatch failure
 
+`mock-pipeline-results:list`:
+
+- `0`: success
+- `1`: filter returned no entries
+- `2`: usage, load, or malformed manifest error
+
 ## CI/Scrapeable Status Convention
 
 In normal text mode, `pnpm benchmark:release-smoke` prints exactly one final status line:
