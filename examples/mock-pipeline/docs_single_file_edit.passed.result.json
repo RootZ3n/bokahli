@@ -1,0 +1,77 @@
+{
+  "ok": true,
+  "status": "passed",
+  "benchmarkId": "docs_single_file_edit",
+  "scenario": "valid_docs_single_file_edit",
+  "worker": {
+    "ok": true,
+    "mode": "mock",
+    "scenario": "valid_docs_single_file_edit",
+    "candidate": {
+      "benchmarkId": "docs_single_file_edit",
+      "changedFiles": [
+        "README.md"
+      ],
+      "fileContents": {
+        "README.md": "# Simple TS Repo\n\nFixture repository for Ariadne scanner tests.\n\n## Usage\nRun the tool with the default command.\nRun npm run doctor before submitting changes.\n"
+      },
+      "notes": [
+        "Mock worker produced deterministic docs edit candidate."
+      ]
+    }
+  },
+  "candidate": {
+    "benchmarkId": "docs_single_file_edit",
+    "changedFiles": [
+      "README.md"
+    ],
+    "fileContents": {
+      "README.md": "# Simple TS Repo\n\nFixture repository for Ariadne scanner tests.\n\n## Usage\nRun the tool with the default command.\nRun npm run doctor before submitting changes.\n"
+    },
+    "notes": [
+      "Mock worker produced deterministic docs edit candidate."
+    ]
+  },
+  "validation": {
+    "ok": true,
+    "candidate": {
+      "benchmarkId": "docs_single_file_edit",
+      "changedFiles": [
+        "README.md"
+      ],
+      "fileContents": {
+        "README.md": "# Simple TS Repo\n\nFixture repository for Ariadne scanner tests.\n\n## Usage\nRun the tool with the default command.\nRun npm run doctor before submitting changes.\n"
+      },
+      "notes": [
+        "Mock worker produced deterministic docs edit candidate."
+      ]
+    }
+  },
+  "evaluation": {
+    "ok": true,
+    "benchmarkId": "docs_single_file_edit",
+    "source": "string",
+    "verification": {
+      "ok": true,
+      "benchmarkId": "docs_single_file_edit",
+      "passedChecks": [
+        "benchmark id matches docs_single_file_edit",
+        "README.md is listed as changed",
+        "README.md content is present",
+        "README.md mentions \"npm run doctor\"",
+        "package.json is not changed",
+        "candidate stays within fixture allowlist",
+        "candidate has no unrelated file additions",
+        "candidate does not rely on success claims without diff evidence"
+      ],
+      "failedChecks": [],
+      "evidence": [
+        "loaded fixture tests/fixtures/docs-single-file-edit",
+        "loaded fixture files: README.md, package.json",
+        "changedFiles includes README.md",
+        "fileContents includes README.md",
+        "README.md contains \"npm run doctor\""
+      ]
+    }
+  }
+}

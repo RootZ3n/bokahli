@@ -150,6 +150,8 @@ pnpm candidates:validate -- --candidate /tmp/scintilla-candidate.json --benchmar
 pnpm candidates:evaluate -- --candidate /tmp/scintilla-candidate.json --benchmark docs_single_file_edit
 ```
 
+`examples/mock-pipeline/` contains structured deterministic mock-pipeline result examples. These are no-model mock outputs for future docs, tests, and Aedis integration references; they do not certify real model quality.
+
 List context packet templates with:
 
 ```sh
