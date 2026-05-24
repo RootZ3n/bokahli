@@ -132,6 +132,26 @@ const passingThreeFileCandidate: BenchmarkCandidateResult = {
   notes: ["Diff evidence: three expected files changed."]
 };
 
+const passingMessyPromptCandidate: BenchmarkCandidateResult = {
+  benchmarkId: "messy_prompt_resilience",
+  changedFiles: [],
+  fileContents: {},
+  interpretedTask: {
+    promptQuality: "P3",
+    scopedGoal: "Change auditEverySteps from 5 to 3 across config, tests, and docs.",
+    targetBehavior: "Audit frequency moves from 5 steps to 3 steps.",
+    affectedFiles: ["scintilla.config.json", "tests/config.test.ts", "docs/USAGE.md"],
+    nonGoals: [
+      "Do not change package.json.",
+      "Do not change allowMultiFileWorkerTasks; keep it false.",
+      "Do not change defaultModelTier; keep tier_1."
+    ],
+    decompositionRequired: true,
+    verificationRequired: ["Run tests.", "Run typecheck."]
+  },
+  notes: ["No edits applied; interpreted task only."]
+};
+
 describe("benchmark fixture runner", () => {
   it("passes docs_single_file_edit candidate through the runner", async () => {
     const result = await runBenchmarkFixture("docs_single_file_edit", passingCandidate);
@@ -218,6 +238,16 @@ describe("benchmark fixture runner", () => {
     expect(result.benchmarkId).toBe("three_file_chain_config_test_docs");
     expect(result.evidence).toEqual(
       expect.arrayContaining(["loaded fixture tests/fixtures/three-file-chain-config-test-docs", "decomposition covers config, test, and docs separately"])
+    );
+  });
+
+  it("passes messy_prompt_resilience candidate through the runner", async () => {
+    const result = await runBenchmarkFixture("messy_prompt_resilience", passingMessyPromptCandidate);
+
+    expect(result.ok).toBe(true);
+    expect(result.benchmarkId).toBe("messy_prompt_resilience");
+    expect(result.evidence).toEqual(
+      expect.arrayContaining(["loaded fixture tests/fixtures/messy-prompt-resilience", "scoped goal mentions auditEverySteps/audit and 5 to 3"])
     );
   });
 

@@ -1,0 +1,5 @@
+{
+  "auditEverySteps": 5,
+  "allowMultiFileWorkerTasks": false,
+  "defaultModelTier": "tier_1"
+}

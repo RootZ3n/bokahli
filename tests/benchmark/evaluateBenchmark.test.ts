@@ -145,6 +145,26 @@ const passingThreeFileCandidate = {
   notes: ["Diff evidence: three expected files changed."]
 };
 
+const passingMessyPromptCandidate = {
+  benchmarkId: "messy_prompt_resilience",
+  changedFiles: [],
+  fileContents: {},
+  interpretedTask: {
+    promptQuality: "P3",
+    scopedGoal: "Change auditEverySteps from 5 to 3 across config, tests, and docs.",
+    targetBehavior: "Audit frequency moves from 5 steps to 3 steps.",
+    affectedFiles: ["scintilla.config.json", "tests/config.test.ts", "README.md"],
+    nonGoals: [
+      "Do not change package.json.",
+      "Do not change allowMultiFileWorkerTasks; keep it false.",
+      "Do not change defaultModelTier; keep tier_1."
+    ],
+    decompositionRequired: true,
+    verificationRequired: ["Run tests.", "Run typecheck."]
+  },
+  notes: ["No edits applied; interpreted task only."]
+};
+
 async function createTempDir(): Promise<string> {
   return mkdtemp(path.join(tmpdir(), "scintilla-evaluate-benchmark-"));
 }
@@ -308,6 +328,16 @@ describe("benchmark evaluation API", () => {
     if (result.ok) {
       expect(result.verification.passedChecks).toContain("changedFiles contains exactly config, test, and docs files");
       expect(result.verification.passedChecks).toContain("decomposition has one step for each changed file");
+    }
+  });
+
+  it("returns ok:true for messy_prompt_resilience through JSON string evaluation", async () => {
+    const result = await evaluateBenchmarkCandidateFromJsonString("messy_prompt_resilience", JSON.stringify(passingMessyPromptCandidate));
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.verification.passedChecks).toContain("promptQuality is P3");
+      expect(result.verification.passedChecks).toContain("verificationRequired includes tests and typecheck");
     }
   });
 

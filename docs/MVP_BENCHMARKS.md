@@ -38,7 +38,7 @@ Baseline benchmarks are restricted to `P0`. `messy_prompt_resilience` is intenti
 | `context_retrieval_only` | yes | `P0` | 0 | Repository-grounded answer with no edits. |
 | `drift_detection` | no | `P2` | 0 | Detect mismatch between expected and observed repository state. |
 | `scope_violation_detection` | no | `P2` | 0 | Detect and report out-of-scope changes or instructions. |
-| `messy_prompt_resilience` | no | `P4` | 1 | Extract a valid task from noisy or contradictory instructions. |
+| `messy_prompt_resilience` | no | `P3` | 0 | Extract a scoped task from noisy instructions without editing files. |
 
 ## Verification Policy
 
@@ -75,3 +75,5 @@ The high-level evaluation API in `src/core/benchmark/evaluateBenchmark.ts` combi
 `failing_test_single_file_fix` has an executable source-text fixture and verifier. The fixture contains a broken `clamp` implementation and tests that expect below-min values to return `min`. A passing candidate changes only `src/math.ts`, preserves the exported `clamp` function, changes the below-min branch to return `min`, keeps the above-max and in-range behavior, and does not edit tests, package metadata, docs, or unrelated files. This verifier is deterministic source-text verification for now; it does not execute tests yet, and it rejects test weakening.
 
 `three_file_chain_config_test_docs` has an executable fixture and verifier for coordinated multi-file work. A passing candidate changes exactly `scintilla.config.json`, `tests/config.test.ts`, and `README.md` to move audit frequency from every `5` steps to every `3` steps while preserving the other config values. It must also provide explicit `single_file_steps` or `single_purpose_steps` decomposition with one step for each changed file. This tests the doctrine that multi-file work is coordinated as single-file, single-purpose steps rather than one giant worker action.
+
+`messy_prompt_resilience` has an executable fixture and verifier for noisy prompt interpretation. It is not a baseline builder benchmark and is separate from the `P0` execution tests. The fixture prompt asks vaguely to make the audit behavior "less lazy"; a passing candidate extracts the scoped task as changing `auditEverySteps` from `5` to `3` across config, tests, and docs, names package/config non-goals, requires single-file or single-purpose decomposition, and lists tests/typecheck verification expectations. No edits are accepted in this benchmark: `changedFiles` and `fileContents` must stay empty, and success or verification-passed claims fail.

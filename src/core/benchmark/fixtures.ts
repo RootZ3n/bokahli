@@ -1,4 +1,4 @@
-import type { BenchmarkId } from "./registry.js";
+import type { BenchmarkId, PromptQualityLevel } from "./registry.js";
 
 export interface BenchmarkCandidateResult {
   benchmarkId: string;
@@ -9,6 +9,7 @@ export interface BenchmarkCandidateResult {
   audit?: BenchmarkCandidateAudit;
   drift?: BenchmarkCandidateDrift;
   decomposition?: BenchmarkCandidateDecomposition;
+  interpretedTask?: BenchmarkCandidateInterpretedTask;
 }
 
 export interface BenchmarkCandidateEvidence {
@@ -52,6 +53,16 @@ export interface BenchmarkCandidateDecompositionStep {
   stepId: string;
   purpose: string;
   file: string;
+}
+
+export interface BenchmarkCandidateInterpretedTask {
+  promptQuality: PromptQualityLevel;
+  scopedGoal: string;
+  targetBehavior: string;
+  affectedFiles: readonly string[];
+  nonGoals: readonly string[];
+  decompositionRequired: boolean;
+  verificationRequired: readonly string[];
 }
 
 export interface BenchmarkVerificationResult {
@@ -127,6 +138,15 @@ export const threeFileChainConfigTestDocsFixture: BenchmarkFixtureMetadata = {
   verifierId: "threeFileChainConfigTestDocsVerifier"
 };
 
+export const messyPromptResilienceFixture: BenchmarkFixtureMetadata = {
+  benchmarkId: "messy_prompt_resilience",
+  fixturePath: "tests/fixtures/messy-prompt-resilience",
+  task:
+    'Extract the scoped task from a noisy request: "make the audit thing less lazy and update whatever needs it, but don\'t overdo it."',
+  allowedFiles: ["README.md", "docs/USAGE.md", "package.json", "scintilla.config.json", "tests/config.test.ts"],
+  verifierId: "messyPromptResilienceVerifier"
+};
+
 export const benchmarkFixtures = [
   docsSingleFileEditFixture,
   configSingleFileEditFixture,
@@ -134,5 +154,6 @@ export const benchmarkFixtures = [
   scopeViolationDetectionFixture,
   driftDetectionFixture,
   failingTestSingleFileFixFixture,
-  threeFileChainConfigTestDocsFixture
+  threeFileChainConfigTestDocsFixture,
+  messyPromptResilienceFixture
 ] as const satisfies readonly BenchmarkFixtureMetadata[];

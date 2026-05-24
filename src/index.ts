@@ -9,6 +9,7 @@ export { verifyConfigSingleFileEdit } from "./core/benchmark/configSingleFileEdi
 export { verifyContextRetrievalOnly } from "./core/benchmark/contextRetrievalOnlyVerifier.js";
 export { verifyDriftDetection } from "./core/benchmark/driftDetectionVerifier.js";
 export { verifyFailingTestSingleFileFix } from "./core/benchmark/failingTestSingleFileFixVerifier.js";
+export { verifyMessyPromptResilience } from "./core/benchmark/messyPromptResilienceVerifier.js";
 export { verifyScopeViolationDetection } from "./core/benchmark/scopeViolationDetectionVerifier.js";
 export { verifyThreeFileChainConfigTestDocs } from "./core/benchmark/threeFileChainConfigTestDocsVerifier.js";
 export {
@@ -32,6 +33,7 @@ export {
   driftDetectionFixture,
   docsSingleFileEditFixture,
   failingTestSingleFileFixFixture,
+  messyPromptResilienceFixture,
   scopeViolationDetectionFixture,
   threeFileChainConfigTestDocsFixture,
   type BenchmarkAuditVerdict,
@@ -40,6 +42,7 @@ export {
   type BenchmarkCandidateDecompositionStep,
   type BenchmarkCandidateDrift,
   type BenchmarkCandidateEvidence,
+  type BenchmarkCandidateInterpretedTask,
   type BenchmarkDecompositionStrategy,
   type BenchmarkCandidateResult,
   type BenchmarkFixtureMetadata,

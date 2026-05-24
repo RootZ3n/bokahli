@@ -1,4 +1,5 @@
 import type { BenchmarkAuditVerdict, BenchmarkCandidateResult, BenchmarkDecompositionStrategy } from "./fixtures.js";
+import type { PromptQualityLevel } from "./registry.js";
 
 export interface CandidateValidationError {
   path: string;
@@ -75,6 +76,7 @@ const allowedAuditVerdicts = new Set<BenchmarkAuditVerdict>([
 ]);
 
 const allowedDecompositionStrategies = new Set<BenchmarkDecompositionStrategy>(["single_file_steps", "single_purpose_steps"]);
+const allowedPromptQualityLevels = new Set<PromptQualityLevel>(["P0", "P1", "P2", "P3", "P4"]);
 
 export function validateBenchmarkCandidateResult(candidate: unknown, options: CandidateValidationOptions = {}): CandidateValidationResult {
   const errors: CandidateValidationError[] = [];
@@ -442,6 +444,94 @@ export function validateBenchmarkCandidateResult(candidate: unknown, options: Ca
     }
   }
 
+  const interpretedTask = candidate["interpretedTask"];
+  if (interpretedTask !== undefined) {
+    if (!isPlainObject(interpretedTask)) {
+      errors.push({
+        path: "$.interpretedTask",
+        code: "invalid_interpreted_task",
+        message: "interpretedTask must be an object when present"
+      });
+    } else {
+      const promptQuality = interpretedTask["promptQuality"];
+      if (typeof promptQuality !== "string" || !allowedPromptQualityLevels.has(promptQuality as PromptQualityLevel)) {
+        errors.push({
+          path: "$.interpretedTask.promptQuality",
+          code: "invalid_interpreted_task_prompt_quality",
+          message: "interpretedTask promptQuality must be one of P0, P1, P2, P3, or P4"
+        });
+      }
+
+      const scopedGoal = interpretedTask["scopedGoal"];
+      if (typeof scopedGoal !== "string" || scopedGoal.length === 0) {
+        errors.push({
+          path: "$.interpretedTask.scopedGoal",
+          code: "required_interpreted_task_scoped_goal",
+          message: "interpretedTask scopedGoal is required and must be a non-empty string"
+        });
+      }
+
+      const targetBehavior = interpretedTask["targetBehavior"];
+      if (typeof targetBehavior !== "string" || targetBehavior.length === 0) {
+        errors.push({
+          path: "$.interpretedTask.targetBehavior",
+          code: "required_interpreted_task_target_behavior",
+          message: "interpretedTask targetBehavior is required and must be a non-empty string"
+        });
+      }
+
+      const affectedFiles = interpretedTask["affectedFiles"];
+      if (!Array.isArray(affectedFiles)) {
+        errors.push({
+          path: "$.interpretedTask.affectedFiles",
+          code: "required_interpreted_task_affected_files",
+          message: "interpretedTask affectedFiles must be an array of relative paths"
+        });
+      } else {
+        affectedFiles.forEach((file, index) => {
+          const errorPath = `$.interpretedTask.affectedFiles[${index}]`;
+          if (typeof file !== "string") {
+            errors.push({
+              path: errorPath,
+              code: "invalid_interpreted_task_affected_file",
+              message: "interpretedTask affectedFiles entries must be strings"
+            });
+            return;
+          }
+
+          validateRelativePath(file, errorPath, errors);
+        });
+      }
+
+      const nonGoals = interpretedTask["nonGoals"];
+      if (!Array.isArray(nonGoals) || !nonGoals.every((nonGoal) => typeof nonGoal === "string")) {
+        errors.push({
+          path: "$.interpretedTask.nonGoals",
+          code: "required_interpreted_task_non_goals",
+          message: "interpretedTask nonGoals must be an array of strings"
+        });
+      }
+
+      const decompositionRequired = interpretedTask["decompositionRequired"];
+      if (typeof decompositionRequired !== "boolean") {
+        errors.push({
+          path: "$.interpretedTask.decompositionRequired",
+          code: "invalid_interpreted_task_decomposition_required",
+          message: "interpretedTask decompositionRequired must be a boolean"
+        });
+      }
+
+      const verificationRequired = interpretedTask["verificationRequired"];
+      if (!Array.isArray(verificationRequired) || !verificationRequired.every((requirement) => typeof requirement === "string")) {
+        errors.push({
+          path: "$.interpretedTask.verificationRequired",
+          code: "required_interpreted_task_verification_required",
+          message: "interpretedTask verificationRequired must be an array of strings"
+        });
+      }
+    }
+  }
+
   if (errors.length > 0) {
     return { ok: false, errors };
   }
@@ -456,7 +546,8 @@ export function validateBenchmarkCandidateResult(candidate: unknown, options: Ca
       evidence: evidence as BenchmarkCandidateResult["evidence"],
       audit: audit as BenchmarkCandidateResult["audit"],
       drift: drift as BenchmarkCandidateResult["drift"],
-      decomposition: decomposition as BenchmarkCandidateResult["decomposition"]
+      decomposition: decomposition as BenchmarkCandidateResult["decomposition"],
+      interpretedTask: interpretedTask as BenchmarkCandidateResult["interpretedTask"]
     }
   };
 }

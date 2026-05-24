@@ -424,6 +424,84 @@ describe("benchmark candidate validation", () => {
     }
   });
 
+  it("passes valid interpretedTask entries", () => {
+    const result = validateBenchmarkCandidateResult({
+      benchmarkId: "messy_prompt_resilience",
+      changedFiles: [],
+      fileContents: {},
+      interpretedTask: {
+        promptQuality: "P3",
+        scopedGoal: "Change auditEverySteps from 5 to 3.",
+        targetBehavior: "Audit frequency moves from 5 to 3.",
+        affectedFiles: ["scintilla.config.json", "tests/config.test.ts", "README.md"],
+        nonGoals: ["Do not change package.json."],
+        decompositionRequired: true,
+        verificationRequired: ["Run tests.", "Run typecheck."]
+      }
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.candidate.interpretedTask?.promptQuality).toBe("P3");
+    }
+  });
+
+  it("fails unsafe interpretedTask affectedFiles path", () => {
+    const result = validateBenchmarkCandidateResult({
+      benchmarkId: "messy_prompt_resilience",
+      changedFiles: [],
+      fileContents: {},
+      interpretedTask: {
+        promptQuality: "P3",
+        scopedGoal: "Change auditEverySteps from 5 to 3.",
+        targetBehavior: "Audit frequency moves from 5 to 3.",
+        affectedFiles: ["../scintilla.config.json"],
+        nonGoals: ["Do not change package.json."],
+        decompositionRequired: true,
+        verificationRequired: ["Run tests.", "Run typecheck."]
+      }
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors).toEqual(
+        expect.arrayContaining([expect.objectContaining({ code: "path_traversal", path: "$.interpretedTask.affectedFiles[0]" })])
+      );
+    }
+  });
+
+  it("fails malformed interpretedTask shape", () => {
+    const result = validateBenchmarkCandidateResult({
+      benchmarkId: "messy_prompt_resilience",
+      changedFiles: [],
+      fileContents: {},
+      interpretedTask: {
+        promptQuality: "messy",
+        scopedGoal: "",
+        targetBehavior: "",
+        affectedFiles: "README.md",
+        nonGoals: [1],
+        decompositionRequired: "yes",
+        verificationRequired: "tests"
+      }
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ code: "invalid_interpreted_task_prompt_quality" }),
+          expect.objectContaining({ code: "required_interpreted_task_scoped_goal" }),
+          expect.objectContaining({ code: "required_interpreted_task_target_behavior" }),
+          expect.objectContaining({ code: "required_interpreted_task_affected_files" }),
+          expect.objectContaining({ code: "required_interpreted_task_non_goals" }),
+          expect.objectContaining({ code: "invalid_interpreted_task_decomposition_required" }),
+          expect.objectContaining({ code: "required_interpreted_task_verification_required" })
+        ])
+      );
+    }
+  });
+
   it("ignores unsupported extra fields", () => {
     const result = validateBenchmarkCandidateResult(
       {

@@ -191,20 +191,24 @@ export const benchmarkRegistry = [
     description:
       "Extract the actionable task from noisy, contradictory, or low-quality instructions while preserving explicit constraints.",
     baseline: false,
-    prompt_quality_level: "P4",
-    required_capabilities: ["prompt triage", "constraint extraction", "clarifying assumption reporting", "verification reporting"],
-    max_files_changed: 1,
-    expected_pipeline_phases: ["scope_intake", "context_retrieval", "plan", "edit", "verify", "report"],
+    prompt_quality_level: "P3",
+    required_capabilities: ["prompt triage", "constraint extraction", "scope control", "verification planning"],
+    max_files_changed: 0,
+    expected_pipeline_phases: ["scope_intake", "context_retrieval", "plan", "decompose", "verify", "report"],
     success_criteria: [
-      "Completes only the recoverable actionable task and states any assumptions needed to handle prompt noise.",
-      "Final report includes verification evidence from tests, diff inspection, or command output."
+      "Extracts a concrete scoped task from noisy instructions without editing files.",
+      "Interpreted task includes verification evidence requirements from tests, typecheck, or equivalent checks."
     ],
     failure_criteria: [
-      "Follows contradictory or decorative prompt content that violates the actionable task boundary.",
+      "Accepts vague prompt wording as permission for broad edits, unrelated refactors, or completed work claims.",
       "Reports success based on model self-claim without verifier evidence."
     ],
     recommended_model_tiers: ["medium", "large"],
-    verifier_requirements: ["Review extracted constraints against the original prompt.", "Require evidence beyond model self-claim."]
+    verifier_requirements: [
+      "Review extracted constraints against the original prompt.",
+      "Confirm no files are changed.",
+      "Require evidence beyond model self-claim."
+    ]
   }
 ] as const satisfies readonly BenchmarkDefinition[];
 

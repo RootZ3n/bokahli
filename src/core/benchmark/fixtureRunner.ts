@@ -6,6 +6,7 @@ import { verifyContextRetrievalOnly } from "./contextRetrievalOnlyVerifier.js";
 import { verifyDriftDetection } from "./driftDetectionVerifier.js";
 import { verifyDocsSingleFileEdit } from "./docsSingleFileEditVerifier.js";
 import { verifyFailingTestSingleFileFix } from "./failingTestSingleFileFixVerifier.js";
+import { verifyMessyPromptResilience } from "./messyPromptResilienceVerifier.js";
 import { verifyScopeViolationDetection } from "./scopeViolationDetectionVerifier.js";
 import { verifyThreeFileChainConfigTestDocs } from "./threeFileChainConfigTestDocsVerifier.js";
 import {
@@ -38,6 +39,7 @@ const defaultVerifiers: Readonly<Record<string, BenchmarkVerifier>> = {
   driftDetectionVerifier: verifyDriftDetection,
   docsSingleFileEditVerifier: verifyDocsSingleFileEdit,
   failingTestSingleFileFixVerifier: verifyFailingTestSingleFileFix,
+  messyPromptResilienceVerifier: verifyMessyPromptResilience,
   scopeViolationDetectionVerifier: verifyScopeViolationDetection,
   threeFileChainConfigTestDocsVerifier: verifyThreeFileChainConfigTestDocs
 };
