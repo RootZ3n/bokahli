@@ -130,3 +130,11 @@ These examples are not model outputs yet. They do not prove a model can generate
 `examples/context-packets/` contains checked-in context packet JSON templates generated from `tests/fixtures/simple-ts-repo`. These packets demonstrate the shape produced by `pnpm ariadne:packet` for future small-model worker context handoff. They are static examples, not model outputs, and they do not execute verification commands.
 
 `examples/context-packets/manifest.json` is the machine-readable index for tooling and future Aedis integration. It maps each packet template to its task type, goal, selected paths, and allowed files so tools do not need to parse filenames.
+
+List context packet templates with:
+
+```sh
+pnpm context-packets:list
+pnpm context-packets:list -- --json
+pnpm context-packets:list -- --id readme_patch_one_file
+```
