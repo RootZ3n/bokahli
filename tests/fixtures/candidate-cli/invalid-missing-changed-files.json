@@ -1,0 +1,6 @@
+{
+  "benchmarkId": "docs_single_file_edit",
+  "fileContents": {
+    "README.md": "# Fixture\n\n## Usage\nRun `npm run doctor`.\n"
+  }
+}

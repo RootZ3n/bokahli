@@ -1,0 +1,8 @@
+{
+  "benchmarkId": "docs_single_file_edit",
+  "changedFiles": ["README.md"],
+  "fileContents": {
+    "README.md": "# Fixture\n\n## Usage\nRun `npm run doctor`.\n"
+  },
+  "notes": ["Diff evidence: README.md includes npm run doctor."]
+}

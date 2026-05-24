@@ -1,0 +1,7 @@
+{
+  "benchmarkId": "config_single_file_edit",
+  "changedFiles": ["scintilla.config.json"],
+  "fileContents": {
+    "scintilla.config.json": "{\"auditEverySteps\":3,\"allowMultiFileWorkerTasks\":false,\"defaultModelTier\":\"tier_1\"}"
+  }
+}

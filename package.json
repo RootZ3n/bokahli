@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "build": "tsc -p tsconfig.build.json",
-    "benchmarks:list": "node dist/cli/index.js benchmarks list"
+    "benchmarks:list": "node dist/cli/index.js benchmarks list",
+    "candidates:validate": "node dist/cli/index.js candidates validate"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
