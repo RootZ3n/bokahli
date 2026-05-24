@@ -15,6 +15,7 @@
     "candidates:evaluate": "node dist/cli/index.js candidates evaluate",
     "examples:list": "node dist/cli/index.js examples list",
     "ariadne:scan": "node dist/cli/index.js ariadne scan",
+    "ariadne:packet": "node dist/cli/index.js ariadne packet",
     "benchmark:release-smoke": "tsx scripts/benchmark-release-smoke.ts"
   },
   "devDependencies": {
