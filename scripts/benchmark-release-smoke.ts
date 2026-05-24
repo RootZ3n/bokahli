@@ -287,6 +287,36 @@ export function getBenchmarkReleaseSmokeCommands(): readonly SmokeCommand[] {
         "--json"
       ],
       expectedExitCode: 1
+    },
+    {
+      id: "mock-pipeline-results-list",
+      command: "pnpm",
+      args: ["mock-pipeline-results:list"],
+      expectedExitCode: 0
+    },
+    {
+      id: "mock-pipeline-results-list-json",
+      command: "pnpm",
+      args: ["mock-pipeline-results:list", "--", "--json"],
+      expectedExitCode: 0
+    },
+    {
+      id: "mock-pipeline-results-list-docs",
+      command: "pnpm",
+      args: ["mock-pipeline-results:list", "--", "--benchmark", "docs_single_file_edit"],
+      expectedExitCode: 0
+    },
+    {
+      id: "mock-pipeline-results-list-passed",
+      command: "pnpm",
+      args: ["mock-pipeline-results:list", "--", "--status", "passed"],
+      expectedExitCode: 0
+    },
+    {
+      id: "mock-pipeline-results-list-docs-passed",
+      command: "pnpm",
+      args: ["mock-pipeline-results:list", "--", "--id", "docs_single_file_edit.passed"],
+      expectedExitCode: 0
     }
   ];
 }
