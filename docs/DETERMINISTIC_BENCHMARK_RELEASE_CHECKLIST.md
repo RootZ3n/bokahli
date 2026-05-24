@@ -2,7 +2,7 @@
 
 ## Scope
 
-This checklist covers Scintilla's deterministic benchmark plumbing plus Ariadne read-only context tooling:
+This checklist covers Scintilla's deterministic benchmark plumbing, Ariadne read-only context tooling, and contract template discovery:
 
 - benchmark registry
 - local fixtures
@@ -12,6 +12,7 @@ This checklist covers Scintilla's deterministic benchmark plumbing plus Ariadne 
 - CLI listing, validation, evaluation, and examples commands
 - example candidate manifest
 - Ariadne repo scan, context packet, and context packet example listing commands
+- TaskContract examples and manifest listing commands
 
 It does not certify local model generation, Ollama integration, orchestration, Aedis integration, or real repository editing.
 
@@ -58,6 +59,10 @@ pnpm ariadne:packet -- --repo tests/fixtures/simple-ts-repo --task-type patch_on
 pnpm context-packets:list
 pnpm context-packets:list -- --json
 pnpm context-packets:list -- --id readme_patch_one_file
+pnpm contracts:list
+pnpm contracts:list -- --json
+pnpm contracts:list -- --id readme_patch_one_file
+pnpm ariadne:packet -- --repo tests/fixtures/simple-ts-repo --contract examples/contracts/readme_patch_one_file.contract.json --json
 ```
 
 The final command is expected to exit `1` because `docs_single_file_edit.fail.json` has a valid candidate shape but fails deterministic verification.
@@ -95,7 +100,7 @@ In normal text mode, `pnpm benchmark:release-smoke` prints exactly one final sta
 SCINTILLA_BENCHMARK_PLUMBING_STATUS=BENCHMARK_PLUMBING_READY
 ```
 
-The status variable and `BENCHMARK_PLUMBING_READY` wording remain unchanged for compatibility, even though the smoke script now also covers Ariadne read-only context tooling.
+The status variable and `BENCHMARK_PLUMBING_READY` wording remain unchanged for compatibility, even though the smoke script now also covers Ariadne read-only context tooling and contract template discovery.
 
 On deterministic smoke failure, the final line is:
 
@@ -131,14 +136,14 @@ pnpm benchmark:release-smoke -- --json
 
 ## CI Workflow
 
-The `Benchmark Release Smoke` GitHub Actions workflow runs deterministic benchmark plumbing plus Ariadne read-only context tooling. It installs dependencies, runs `pnpm benchmark:release-smoke`, asserts the stable `SCINTILLA_BENCHMARK_PLUMBING_STATUS=BENCHMARK_PLUMBING_READY` line, writes `benchmark-release-smoke.json`, and archives the smoke reports as the stable `benchmark-release-smoke` artifact.
+The `Benchmark Release Smoke` GitHub Actions workflow runs deterministic benchmark plumbing, Ariadne read-only context tooling, and contract template discovery. It installs dependencies, runs `pnpm benchmark:release-smoke`, asserts the stable `SCINTILLA_BENCHMARK_PLUMBING_STATUS=BENCHMARK_PLUMBING_READY` line, writes `benchmark-release-smoke.json`, and archives the smoke reports as the stable `benchmark-release-smoke` artifact.
 
 The artifact includes both:
 
 - `benchmark-release-smoke.txt`
 - `benchmark-release-smoke.json`
 
-The archived reports cover deterministic benchmark plumbing, candidate examples and manifests, and Ariadne read-only scan, packet, and context-packet template tooling.
+The archived reports cover deterministic benchmark plumbing, candidate examples and manifests, Ariadne read-only scan, packet, and context-packet template tooling, and TaskContract template discovery.
 
 The workflow does not add model calls, Ollama setup, provider secrets, orchestration, Aedis integration, benchmark generation, or real repository editing. Ariadne checks are read-only context tooling checks only.
 

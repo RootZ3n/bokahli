@@ -188,6 +188,38 @@ export function getBenchmarkReleaseSmokeCommands(): readonly SmokeCommand[] {
       command: "pnpm",
       args: ["context-packets:list", "--", "--id", "readme_patch_one_file"],
       expectedExitCode: 0
+    },
+    {
+      id: "contracts-list",
+      command: "pnpm",
+      args: ["contracts:list"],
+      expectedExitCode: 0
+    },
+    {
+      id: "contracts-list-json",
+      command: "pnpm",
+      args: ["contracts:list", "--", "--json"],
+      expectedExitCode: 0
+    },
+    {
+      id: "contracts-list-readme",
+      command: "pnpm",
+      args: ["contracts:list", "--", "--id", "readme_patch_one_file"],
+      expectedExitCode: 0
+    },
+    {
+      id: "ariadne-packet-readme-contract-json",
+      command: "pnpm",
+      args: [
+        "ariadne:packet",
+        "--",
+        "--repo",
+        "tests/fixtures/simple-ts-repo",
+        "--contract",
+        "examples/contracts/readme_patch_one_file.contract.json",
+        "--json"
+      ],
+      expectedExitCode: 0
     }
   ];
 }

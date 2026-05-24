@@ -18,6 +18,8 @@ const ariadneCheckIds = [
   "context-packets-list-readme"
 ];
 
+const contractCheckIds = ["contracts-list", "contracts-list-json", "contracts-list-readme", "ariadne-packet-readme-contract-json"];
+
 function runnerWith(overrides: Readonly<Record<string, number>> = {}): SmokeCommandRunner {
   return async (command: SmokeCommand) => overrides[command.id] ?? command.expectedExitCode;
 }
@@ -86,10 +88,10 @@ describe("benchmark release smoke script", () => {
     const result = await runBenchmarkReleaseSmoke(runnerWith());
 
     expect(commandIds).toEqual(expect.arrayContaining(ariadneCheckIds));
-    expect(commands).toHaveLength(17);
+    expect(commands).toHaveLength(21);
     expect(getSmokeCounts(result)).toEqual({
-      total: 17,
-      passed: 17,
+      total: 21,
+      passed: 21,
       failed: 0
     });
   });
@@ -99,6 +101,18 @@ describe("benchmark release smoke script", () => {
 
     expect(result.ok).toBe(false);
     expect(result.results.find((entry) => entry.id === "ariadne-scan-simple")).toMatchObject({
+      expectedExitCode: 0,
+      actualExitCode: 2,
+      ok: false
+    });
+    expect(formatSmokeTable(result)).toContain("SCINTILLA_BENCHMARK_PLUMBING_STATUS=NOT_READY");
+  });
+
+  it("contract command failure causes NOT_READY", async () => {
+    const result = await runBenchmarkReleaseSmoke(runnerWith({ "contracts-list": 2 }));
+
+    expect(result.ok).toBe(false);
+    expect(result.results.find((entry) => entry.id === "contracts-list")).toMatchObject({
       expectedExitCode: 0,
       actualExitCode: 2,
       ok: false
@@ -156,6 +170,15 @@ describe("benchmark release smoke script", () => {
     expect(checkNames).toEqual(expect.arrayContaining(ariadneCheckIds));
   });
 
+  it("JSON report includes contract checks", async () => {
+    const result = await runBenchmarkReleaseSmoke(runnerWith());
+    const json = toSmokeJsonReport(result);
+    const checkNames = json.checks.map((check) => check.name);
+
+    expect(json.status).toBe("BENCHMARK_PLUMBING_READY");
+    expect(checkNames).toEqual(expect.arrayContaining(contractCheckIds));
+  });
+
   it("context packet list checks are included", () => {
     const commands = getBenchmarkReleaseSmokeCommands();
 
@@ -166,6 +189,25 @@ describe("benchmark release smoke script", () => {
         expect.objectContaining({ id: "context-packets-list-readme", args: ["context-packets:list", "--", "--id", "readme_patch_one_file"] })
       ])
     );
+  });
+
+  it("contract list checks are included", () => {
+    const commands = getBenchmarkReleaseSmokeCommands();
+
+    expect(commands).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "contracts-list", args: ["contracts:list"] }),
+        expect.objectContaining({ id: "contracts-list-json", args: ["contracts:list", "--", "--json"] }),
+        expect.objectContaining({ id: "contracts-list-readme", args: ["contracts:list", "--", "--id", "readme_patch_one_file"] })
+      ])
+    );
+  });
+
+  it("Ariadne contract packet check appears exactly once", () => {
+    const commands = getBenchmarkReleaseSmokeCommands();
+
+    expect(commands.filter((command) => command.id === "ariadne-packet-readme-contract-json")).toHaveLength(1);
+    expect(commands.filter((command) => command.args.includes("examples/contracts/readme_patch_one_file.contract.json"))).toHaveLength(1);
   });
 
   it("keeps BLOCKED reserved for future classified environment blockage", () => {
