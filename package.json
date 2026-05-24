@@ -16,6 +16,7 @@
     "examples:list": "node dist/cli/index.js examples list",
     "contracts:list": "node dist/cli/index.js contracts list",
     "mock-worker:run": "node dist/cli/index.js mock-worker run",
+    "mock-pipeline:run": "node dist/cli/index.js mock-pipeline run",
     "context-packets:list": "node dist/cli/index.js context-packets list",
     "ariadne:scan": "node dist/cli/index.js ariadne scan",
     "ariadne:packet": "node dist/cli/index.js ariadne packet",

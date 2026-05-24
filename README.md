@@ -81,3 +81,9 @@ pnpm --silent mock-worker:run -- --contract examples/contracts/readme_patch_one_
 pnpm candidates:validate -- --candidate /tmp/scintilla-candidate.json --benchmark docs_single_file_edit
 pnpm candidates:evaluate -- --candidate /tmp/scintilla-candidate.json --benchmark docs_single_file_edit
 ```
+
+Run the same deterministic worker-to-verifier path through the in-memory mock pipeline:
+
+```sh
+pnpm mock-pipeline:run -- --contract examples/contracts/readme_patch_one_file.contract.json --context-packet examples/context-packets/readme_patch_one_file.packet.json --scenario valid_docs_single_file_edit --benchmark docs_single_file_edit --json
+```
