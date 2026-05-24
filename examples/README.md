@@ -152,6 +152,8 @@ pnpm candidates:evaluate -- --candidate /tmp/scintilla-candidate.json --benchmar
 
 `examples/mock-pipeline/` contains structured deterministic mock-pipeline result examples. These are no-model mock outputs for future docs, tests, and Aedis integration references; they do not certify real model quality.
 
+`examples/mock-pipeline/manifest.json` is the machine-readable index for tooling and future Aedis integration. It maps each result fixture to its benchmark ID, scenario, expected status, and path so tools do not need to parse filenames.
+
 List context packet templates with:
 
 ```sh

@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "generatedBy": "manual",
+  "results": [
+    {
+      "id": "docs_single_file_edit.passed",
+      "path": "examples/mock-pipeline/docs_single_file_edit.passed.result.json",
+      "benchmarkId": "docs_single_file_edit",
+      "scenario": "valid_docs_single_file_edit",
+      "expectedStatus": "passed",
+      "description": "Passing deterministic mock-pipeline result for docs_single_file_edit."
+    }
+  ]
+}

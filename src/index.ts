@@ -79,6 +79,14 @@ export {
   type ContractExampleManifestValidationError,
   type ContractExampleManifestValidationResult
 } from "./core/examples/contractManifest.js";
+export {
+  loadMockPipelineResultManifest,
+  validateMockPipelineResultManifest,
+  type MockPipelineResultManifest,
+  type MockPipelineResultManifestEntry,
+  type MockPipelineResultManifestValidationError,
+  type MockPipelineResultManifestValidationResult
+} from "./core/examples/mockPipelineResultManifest.js";
 export { repoScannerIgnoredDirs, repoScannerIncludedExtensions, scanRepoContext } from "./core/context/repoScanner.js";
 export {
   buildRepoContextMap,
