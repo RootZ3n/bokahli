@@ -38,7 +38,7 @@ pnpm candidates:evaluate -- --candidate tests/fixtures/candidate-cli/valid-docs-
 
 These commands make no model calls, no Ollama calls, perform no candidate shell execution, and mutate no files. They are deterministic benchmark plumbing. Future Aedis/worker integration should produce candidate JSON and run this validation/evaluation flow.
 
-Before claiming the deterministic benchmark plumbing is healthy, use `docs/DETERMINISTIC_BENCHMARK_RELEASE_CHECKLIST.md`. The benchmark release smoke workflow archives text and JSON reports for deterministic benchmark plumbing, Ariadne read-only context tooling, contract template discovery, and the mock-worker generated-candidate validation/evaluation chain.
+Before claiming the deterministic benchmark plumbing is healthy, use `docs/DETERMINISTIC_BENCHMARK_RELEASE_CHECKLIST.md`. The benchmark release smoke workflow archives text and JSON reports for deterministic benchmark plumbing, Ariadne read-only context tooling, contract template discovery, the mock-worker generated-candidate validation/evaluation chain, and direct mock-pipeline pass/refusal/invalid-schema coverage.
 
 For the current experimental status, certified smoke coverage, and next milestone, see `docs/PROJECT_STATUS.md`.
 

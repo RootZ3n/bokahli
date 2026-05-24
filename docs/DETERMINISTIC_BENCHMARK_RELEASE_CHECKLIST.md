@@ -2,7 +2,7 @@
 
 ## Scope
 
-This checklist covers Scintilla's deterministic benchmark plumbing, Ariadne read-only context tooling, contract template discovery, mock-worker generated-candidate validation, and mock-pipeline checks:
+This checklist covers Scintilla's deterministic benchmark plumbing, Ariadne read-only context tooling, contract template discovery, mock-worker generated-candidate validation, and direct mock-pipeline checks:
 
 - benchmark registry
 - local fixtures
@@ -14,9 +14,9 @@ This checklist covers Scintilla's deterministic benchmark plumbing, Ariadne read
 - Ariadne repo scan, context packet, and context packet example listing commands
 - TaskContract examples, manifest listing commands, and contract-mode Ariadne packet checks
 - mock-worker candidate generation, generated candidate validation, and generated candidate evaluation
-- in-memory mock pipeline CLI pass, refusal, and invalid-candidate behavior
+- direct mock-pipeline CLI pass, refusal, and invalid-schema candidate behavior
 
-It does not certify real model calls, Ollama integration, model quality, orchestration, Aedis integration, or real repository editing.
+It does not certify real model calls, Ollama integration, model quality, production orchestration, Aedis integration, or real repository editing.
 
 ## Required Commands
 
@@ -77,7 +77,7 @@ The `docs_single_file_edit.fail.json` evaluation command is expected to exit `1`
 
 The smoke script captures mock-worker candidate JSON with `pnpm --silent` so pnpm lifecycle text cannot contaminate the generated candidate file. It writes the captured JSON to a temporary file, validates it, evaluates it, and then removes the temp file. This path remains deterministic and model-free.
 
-The smoke script also runs `mock-pipeline:run` directly. The successful docs scenario must exit `0`; the refusal and invalid-schema scenarios must exit `1`, and those expected failures count as passing smoke checks because they verify structured failure behavior.
+The smoke script also runs `mock-pipeline:run` directly. The successful docs scenario must exit `0`; the refusal and invalid-schema scenarios must exit `1`, and those expected failures count as passing smoke checks because they verify structured refusal and candidate-invalid behavior.
 
 ## Expected Exit Codes
 
@@ -148,16 +148,16 @@ pnpm benchmark:release-smoke -- --json
 
 ## CI Workflow
 
-The `Benchmark Release Smoke` GitHub Actions workflow runs deterministic benchmark plumbing, Ariadne read-only context tooling, contract template discovery, the mock-worker generated-candidate validation/evaluation chain, and direct mock-pipeline CLI checks. It installs dependencies, runs `pnpm benchmark:release-smoke`, asserts the stable `SCINTILLA_BENCHMARK_PLUMBING_STATUS=BENCHMARK_PLUMBING_READY` line, writes `benchmark-release-smoke.json`, and archives the smoke reports as the stable `benchmark-release-smoke` artifact.
+The `Benchmark Release Smoke` GitHub Actions workflow runs deterministic benchmark plumbing, Ariadne read-only context tooling, contract template discovery, the mock-worker generated-candidate validation/evaluation chain, and direct mock-pipeline pass/refusal/invalid-schema checks. It installs dependencies, runs `pnpm benchmark:release-smoke`, asserts the stable `SCINTILLA_BENCHMARK_PLUMBING_STATUS=BENCHMARK_PLUMBING_READY` line, writes `benchmark-release-smoke.json`, and archives the smoke reports as the stable `benchmark-release-smoke` artifact.
 
 The artifact includes both:
 
 - `benchmark-release-smoke.txt`
 - `benchmark-release-smoke.json`
 
-The archived reports cover deterministic benchmark plumbing, candidate examples and manifests, Ariadne read-only scan, packet, and context-packet template tooling, TaskContract template discovery, contract-mode Ariadne packet generation, mock-worker candidate generation, generated candidate validation, generated candidate evaluation, and direct mock-pipeline pass/refusal/invalid-candidate checks.
+The archived reports cover deterministic benchmark plumbing, candidate examples and manifests, Ariadne read-only scan, packet, and context-packet template tooling, TaskContract template discovery, contract-mode Ariadne packet generation, mock-worker candidate generation, generated candidate validation, generated candidate evaluation, and direct mock-pipeline pass/refusal/invalid-schema checks.
 
-The workflow does not add real model calls, Ollama setup, provider secrets, model quality certification, orchestration, Aedis integration, benchmark generation, or real repository editing. Ariadne, contract, mock-worker, and mock-pipeline checks are deterministic read-only tooling checks only.
+The workflow does not add real model calls, Ollama setup, provider secrets, model quality certification, production orchestration, Aedis integration, benchmark generation, or real repository editing. Ariadne, contract, mock-worker, and mock-pipeline checks are deterministic read-only tooling checks only.
 
 ## Manifest Consistency Checks
 

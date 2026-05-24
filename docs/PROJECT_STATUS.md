@@ -27,6 +27,7 @@ The deterministic benchmark release smoke now checks the benchmark/context/contr
 - mock-worker generated candidate output
 - generated candidate validation
 - generated candidate evaluation
+- direct mock-pipeline pass/refusal/invalid-schema CLI coverage
 - in-memory mock pipeline stage separation
 
 The mock-worker path proves this deterministic chain:
@@ -40,6 +41,8 @@ TaskContract + ContextPacket + scenario
 
 The mock pipeline API exposes that chain as a structured in-memory result without shelling out or writing files.
 
+The smoke also exercises `mock-pipeline:run` directly for the passing docs scenario, a structured refusal scenario, and an invalid-schema candidate scenario.
+
 ## What The Smoke Does Not Certify
 
 The smoke does not certify:
@@ -48,7 +51,7 @@ The smoke does not certify:
 - real model generation
 - Ollama or local model calls
 - cloud provider calls
-- orchestration
+- production orchestration
 - Aedis integration
 - real repository editing
 - candidate code execution
@@ -96,14 +99,14 @@ pnpm benchmark:release-smoke -- --json
 
 ## Next Development Milestone
 
-The next milestone is a deterministic mock pipeline CLI or smoke integration:
+The next milestone is a deterministic orchestration-shaped dry run:
 
 ```txt
 contract + context packet + scenario
--> mock pipeline
+-> mock pipeline runner
 -> candidate validation
 -> benchmark evaluation
 -> structured result
 ```
 
-This should still use no real models, no Ollama calls, no orchestration, and no Aedis integration.
+This should still use no real models, no Ollama calls, no production orchestration, and no Aedis integration.

@@ -34,7 +34,7 @@ jobs:
       - name: Write JSON smoke report
         run: pnpm benchmark:release-smoke -- --json > benchmark-release-smoke.json
 
-      - name: Upload deterministic benchmark, Ariadne, contract, and mock-worker smoke reports
+      - name: Upload deterministic benchmark, Ariadne, contract, mock-worker, and mock-pipeline smoke reports
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-release-smoke
