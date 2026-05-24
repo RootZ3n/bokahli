@@ -56,3 +56,5 @@ Scan a repository from the CLI:
 pnpm ariadne:scan -- --repo tests/fixtures/simple-ts-repo
 pnpm ariadne:scan -- --repo tests/fixtures/simple-ts-repo --json
 ```
+
+`previewRepoFiles(root, relativePaths, options)` reads bounded UTF-8 excerpts for selected safe relative paths. It rejects absolute paths, traversal, symlinks, directories, unsupported extensions, and paths outside the repo root.

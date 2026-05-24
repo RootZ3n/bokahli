@@ -71,6 +71,13 @@ export {
   type RepoIgnoredContextSummary
 } from "./core/context/repoMap.js";
 export {
+  previewRepoFiles,
+  type FilePreview,
+  type FilePreviewOptions,
+  type FilePreviewResult,
+  type FilePreviewSkip
+} from "./core/context/filePreview.js";
+export {
   type RepoContextFileEntry,
   type RepoContextSnapshot,
   type RepoContextWarning,
