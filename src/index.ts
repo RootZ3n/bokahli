@@ -65,6 +65,12 @@ export {
 } from "./core/examples/candidateManifest.js";
 export { repoScannerIgnoredDirs, repoScannerIncludedExtensions, scanRepoContext } from "./core/context/repoScanner.js";
 export {
+  buildRepoContextMap,
+  type RepoContextFileSummary,
+  type RepoContextMap,
+  type RepoIgnoredContextSummary
+} from "./core/context/repoMap.js";
+export {
   type RepoContextFileEntry,
   type RepoContextSnapshot,
   type RepoContextWarning,
