@@ -4,6 +4,8 @@
 
 `examples/candidates/` contains candidate JSON payloads for Scintilla's deterministic benchmark evaluators. These files are human-readable payload contracts for future worker and Aedis integration.
 
+`examples/candidates/manifest.json` is the machine-readable index for tooling. It maps each template file to its benchmark ID and expected validation/evaluation outcome, so tools do not need to parse filenames.
+
 ## Current Flow
 
 ```sh

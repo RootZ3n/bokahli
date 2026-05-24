@@ -54,3 +54,12 @@ export {
   type BenchmarkVerificationResult
 } from "./core/benchmark/fixtures.js";
 export { benchmarkRegistry, getBenchmarkById, type BenchmarkId, type BenchmarkDefinition } from "./core/benchmark/registry.js";
+export {
+  loadCandidateExampleManifest,
+  validateCandidateExampleManifest,
+  type CandidateExampleExpectation,
+  type CandidateExampleManifest,
+  type CandidateExampleManifestTemplate,
+  type CandidateExampleManifestValidationError,
+  type CandidateExampleManifestValidationResult
+} from "./core/examples/candidateManifest.js";

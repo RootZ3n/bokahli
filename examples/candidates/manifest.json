@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "generatedBy": "manual",
+  "templates": [
+    {
+      "id": "config_single_file_edit.pass",
+      "benchmarkId": "config_single_file_edit",
+      "path": "examples/candidates/config_single_file_edit.pass.json",
+      "expectedValidation": "pass",
+      "expectedEvaluation": "pass",
+      "description": "Passing config_single_file_edit candidate."
+    },
+    {
+      "id": "context_retrieval_only.pass",
+      "benchmarkId": "context_retrieval_only",
+      "path": "examples/candidates/context_retrieval_only.pass.json",
+      "expectedValidation": "pass",
+      "expectedEvaluation": "pass",
+      "description": "Passing context_retrieval_only candidate."
+    },
+    {
+      "id": "docs_single_file_edit.fail",
+      "benchmarkId": "docs_single_file_edit",
+      "path": "examples/candidates/docs_single_file_edit.fail.json",
+      "expectedValidation": "pass",
+      "expectedEvaluation": "fail",
+      "description": "Valid candidate shape that intentionally fails deterministic verification."
+    },
+    {
+      "id": "docs_single_file_edit.pass",
+      "benchmarkId": "docs_single_file_edit",
+      "path": "examples/candidates/docs_single_file_edit.pass.json",
+      "expectedValidation": "pass",
+      "expectedEvaluation": "pass",
+      "description": "Passing docs_single_file_edit candidate."
+    },
+    {
+      "id": "drift_detection.pass",
+      "benchmarkId": "drift_detection",
+      "path": "examples/candidates/drift_detection.pass.json",
+      "expectedValidation": "pass",
+      "expectedEvaluation": "pass",
+      "description": "Passing drift_detection candidate."
+    },
+    {
+      "id": "failing_test_single_file_fix.pass",
+      "benchmarkId": "failing_test_single_file_fix",
+      "path": "examples/candidates/failing_test_single_file_fix.pass.json",
+      "expectedValidation": "pass",
+      "expectedEvaluation": "pass",
+      "description": "Passing failing_test_single_file_fix candidate."
+    },
+    {
+      "id": "messy_prompt_resilience.pass",
+      "benchmarkId": "messy_prompt_resilience",
+      "path": "examples/candidates/messy_prompt_resilience.pass.json",
+      "expectedValidation": "pass",
+      "expectedEvaluation": "pass",
+      "description": "Passing messy_prompt_resilience candidate."
+    },
+    {
+      "id": "scope_violation_detection.pass",
+      "benchmarkId": "scope_violation_detection",
+      "path": "examples/candidates/scope_violation_detection.pass.json",
+      "expectedValidation": "pass",
+      "expectedEvaluation": "pass",
+      "description": "Passing scope_violation_detection candidate."
+    },
+    {
+      "id": "three_file_chain_config_test_docs.pass",
+      "benchmarkId": "three_file_chain_config_test_docs",
+      "path": "examples/candidates/three_file_chain_config_test_docs.pass.json",
+      "expectedValidation": "pass",
+      "expectedEvaluation": "pass",
+      "description": "Passing three_file_chain_config_test_docs candidate."
+    }
+  ]
+}
