@@ -49,3 +49,10 @@ Passing candidate JSON templates for every executable benchmark live in `example
 `scanRepoContext(root)` provides Ariadne v0's read-only repository snapshot. It records package manager, package scripts, included source/config/docs file metadata, ignored directories, and scanner warnings without reading full file contents or mutating the scanned repository.
 
 `buildRepoContextMap(snapshot)` groups that snapshot into source, tests, docs, config, other, and ignored-context sections for small-model context planning without filesystem reads.
+
+Scan a repository from the CLI:
+
+```sh
+pnpm ariadne:scan -- --repo tests/fixtures/simple-ts-repo
+pnpm ariadne:scan -- --repo tests/fixtures/simple-ts-repo --json
+```
