@@ -3,10 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "bin": {
+    "scintilla": "./dist/cli/index.js"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "build": "tsc -p tsconfig.build.json"
+    "build": "tsc -p tsconfig.build.json",
+    "benchmarks:list": "node dist/cli/index.js benchmarks list"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
