@@ -116,6 +116,13 @@ export {
   type TaskContractValidationError,
   type TaskContractValidationResult
 } from "./core/contracts/types.js";
+export { runMockWorker } from "./core/workers/mockWorker.js";
+export {
+  type MockWorkerScenario,
+  type WorkerInput,
+  type WorkerMode,
+  type WorkerResult
+} from "./core/workers/types.js";
 export {
   type RepoContextFileEntry,
   type RepoContextSnapshot,
