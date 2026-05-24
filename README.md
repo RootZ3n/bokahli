@@ -40,6 +40,8 @@ These commands make no model calls, no Ollama calls, perform no candidate shell 
 
 Before claiming the deterministic benchmark plumbing is healthy, use `docs/DETERMINISTIC_BENCHMARK_RELEASE_CHECKLIST.md`. The benchmark release smoke workflow archives text and JSON reports for deterministic benchmark plumbing, Ariadne read-only context tooling, contract template discovery, and the mock-worker generated-candidate validation/evaluation chain.
 
+For the current experimental status, certified smoke coverage, and next milestone, see `docs/PROJECT_STATUS.md`.
+
 ## Example candidate files
 
 Passing candidate JSON templates for every executable benchmark live in `examples/candidates/`. Start with `examples/candidates/docs_single_file_edit.pass.json` for the simplest edit benchmark, or use the matching `<benchmarkId>.pass.json` file as the payload shape for a specific verifier. See `examples/README.md` for field shapes and benchmark-specific guidance.
