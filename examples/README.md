@@ -141,6 +141,12 @@ pnpm ariadne:packet -- --repo tests/fixtures/simple-ts-repo --contract examples/
 
 `examples/contracts/manifest.json` is the machine-readable index for contract templates. It maps each template to its task type, prompt quality, allowed files, and path so tooling does not need to parse filenames.
 
+Generate deterministic mock worker output from the example contract and context packet with:
+
+```sh
+pnpm mock-worker:run -- --contract examples/contracts/readme_patch_one_file.contract.json --context-packet examples/context-packets/readme_patch_one_file.packet.json --scenario valid_docs_single_file_edit --json
+```
+
 List context packet templates with:
 
 ```sh

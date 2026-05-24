@@ -70,3 +70,9 @@ pnpm contracts:list
 ```
 
 Example Ariadne context packet JSON templates live in `examples/context-packets/`.
+
+Generate deterministic mock worker output without model calls:
+
+```sh
+pnpm mock-worker:run -- --contract examples/contracts/readme_patch_one_file.contract.json --context-packet examples/context-packets/readme_patch_one_file.packet.json --scenario valid_docs_single_file_edit --json
+```

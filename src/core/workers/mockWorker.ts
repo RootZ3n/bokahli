@@ -11,6 +11,8 @@ const knownScenarios = new Set<MockWorkerScenario>([
   "refusal_uncertain"
 ]);
 
+export const mockWorkerScenarios = [...knownScenarios] as readonly MockWorkerScenario[];
+
 function scenarioFor(input: WorkerInput): MockWorkerScenario | string {
   return input.scenario ?? "valid_docs_single_file_edit";
 }
