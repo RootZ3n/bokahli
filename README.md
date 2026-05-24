@@ -37,3 +37,7 @@ pnpm candidates:evaluate -- --candidate tests/fixtures/candidate-cli/valid-docs-
 `candidates:evaluate` exits `0` when the benchmark passes, `1` when benchmark verification fails, and `2` for usage, load, validation, unknown benchmark, or benchmark mismatch failures.
 
 These commands make no model calls, no Ollama calls, perform no candidate shell execution, and mutate no files. They are deterministic benchmark plumbing. Future Aedis/worker integration should produce candidate JSON and run this validation/evaluation flow.
+
+## Example candidate files
+
+Passing candidate JSON templates for every executable benchmark live in `examples/candidates/`. Start with `examples/candidates/docs_single_file_edit.pass.json` for the simplest edit benchmark, or use the matching `<benchmarkId>.pass.json` file as the payload shape for a specific verifier.

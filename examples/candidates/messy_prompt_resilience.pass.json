@@ -1,0 +1,19 @@
+{
+  "benchmarkId": "messy_prompt_resilience",
+  "changedFiles": [],
+  "fileContents": {},
+  "interpretedTask": {
+    "promptQuality": "P3",
+    "scopedGoal": "Change auditEverySteps from 5 to 3 across config, tests, and docs.",
+    "targetBehavior": "Audit frequency moves from 5 steps to 3 steps.",
+    "affectedFiles": ["scintilla.config.json", "tests/config.test.ts", "README.md"],
+    "nonGoals": [
+      "Do not change package.json.",
+      "Do not change allowMultiFileWorkerTasks; keep it false.",
+      "Do not change defaultModelTier; keep tier_1."
+    ],
+    "decompositionRequired": true,
+    "verificationRequired": ["Run tests for config behavior.", "Run typecheck for TypeScript coverage."]
+  },
+  "notes": ["No edits applied; this candidate only extracts the scoped task."]
+}

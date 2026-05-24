@@ -1,0 +1,17 @@
+{
+  "benchmarkId": "context_retrieval_only",
+  "changedFiles": [],
+  "fileContents": {},
+  "evidence": [
+    {
+      "file": "docs/ARCHITECTURE.md",
+      "reason": "Ariadne is the repo context keeper.",
+      "quote": "Ariadne is the repo context keeper."
+    },
+    {
+      "file": "src/audit/drift.ts",
+      "reason": "detectDrift is the drift detection function.",
+      "quote": "export function detectDrift"
+    }
+  ]
+}

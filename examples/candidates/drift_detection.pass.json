@@ -1,0 +1,24 @@
+{
+  "benchmarkId": "drift_detection",
+  "changedFiles": [],
+  "fileContents": {},
+  "drift": {
+    "detected": true,
+    "summary": "Documentation and configuration disagree about audit frequency: docs say 5, config says 3.",
+    "expected": "Docs say audits run every 5 steps.",
+    "observed": "Config says auditEverySteps is 3.",
+    "evidenceFiles": ["README.md", "scintilla.config.json"]
+  },
+  "evidence": [
+    {
+      "file": "README.md",
+      "reason": "Documentation says audits run every 5 steps.",
+      "quote": "audits run every 5 steps"
+    },
+    {
+      "file": "scintilla.config.json",
+      "reason": "Configuration sets auditEverySteps to 3.",
+      "quote": "\"auditEverySteps\": 3"
+    }
+  ]
+}

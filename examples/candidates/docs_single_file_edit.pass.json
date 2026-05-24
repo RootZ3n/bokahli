@@ -1,0 +1,8 @@
+{
+  "benchmarkId": "docs_single_file_edit",
+  "changedFiles": ["README.md"],
+  "fileContents": {
+    "README.md": "# Fixture\n\n## Usage\nRun the tool with the default command.\n\nUse `npm run doctor` to check setup.\n"
+  },
+  "notes": ["Diff evidence: README.md changed to mention npm run doctor."]
+}

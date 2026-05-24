@@ -1,0 +1,8 @@
+{
+  "benchmarkId": "docs_single_file_edit",
+  "changedFiles": ["README.md"],
+  "fileContents": {
+    "README.md": "# Fixture\n\n## Usage\nRun the tool with the default command.\n"
+  },
+  "notes": ["Diff evidence: README.md changed, but it does not include the required command."]
+}

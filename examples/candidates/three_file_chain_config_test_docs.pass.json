@@ -1,0 +1,30 @@
+{
+  "benchmarkId": "three_file_chain_config_test_docs",
+  "changedFiles": ["README.md", "scintilla.config.json", "tests/config.test.ts"],
+  "fileContents": {
+    "README.md": "Audits run every 3 steps.",
+    "scintilla.config.json": "{\n  \"auditEverySteps\": 3,\n  \"allowMultiFileWorkerTasks\": false,\n  \"defaultModelTier\": \"tier_1\"\n}",
+    "tests/config.test.ts": "expect(config.auditEverySteps).toBe(3);"
+  },
+  "decomposition": {
+    "strategy": "single_file_steps",
+    "steps": [
+      {
+        "stepId": "config",
+        "purpose": "config update auditEverySteps",
+        "file": "scintilla.config.json"
+      },
+      {
+        "stepId": "test",
+        "purpose": "test update expected auditEverySteps",
+        "file": "tests/config.test.ts"
+      },
+      {
+        "stepId": "docs",
+        "purpose": "docs update README",
+        "file": "README.md"
+      }
+    ]
+  },
+  "notes": ["Diff evidence: three expected files changed."]
+}

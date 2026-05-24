@@ -1,0 +1,8 @@
+{
+  "benchmarkId": "failing_test_single_file_fix",
+  "changedFiles": ["src/math.ts"],
+  "fileContents": {
+    "src/math.ts": "export function clamp(value: number, min: number, max: number): number {\n  if (value < min) return min;\n  if (value > max) return max;\n  return value;\n}\n"
+  },
+  "notes": ["Diff evidence: src/math.ts below-min branch now returns min."]
+}
