@@ -1,0 +1,43 @@
+name: Benchmark Release Smoke
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  benchmark-release-smoke:
+    name: Deterministic benchmark release smoke
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Enable pnpm
+        run: corepack enable pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run deterministic benchmark release smoke
+        run: |
+          pnpm benchmark:release-smoke | tee benchmark-release-smoke.txt
+          grep -q '^SCINTILLA_BENCHMARK_PLUMBING_STATUS=BENCHMARK_PLUMBING_READY$' benchmark-release-smoke.txt
+
+      - name: Write JSON smoke report
+        run: pnpm benchmark:release-smoke -- --json > benchmark-release-smoke.json
+
+      - name: Upload smoke reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-release-smoke
+          path: |
+            benchmark-release-smoke.txt
+            benchmark-release-smoke.json

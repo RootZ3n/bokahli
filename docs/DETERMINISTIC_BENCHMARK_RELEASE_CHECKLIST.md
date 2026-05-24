@@ -120,6 +120,12 @@ In JSON mode, stdout is only JSON:
 pnpm benchmark:release-smoke -- --json
 ```
 
+## CI Workflow
+
+The `Benchmark Release Smoke` GitHub Actions workflow runs deterministic benchmark plumbing only. It installs dependencies, runs `pnpm benchmark:release-smoke`, asserts the stable `SCINTILLA_BENCHMARK_PLUMBING_STATUS=BENCHMARK_PLUMBING_READY` line, writes `benchmark-release-smoke.json`, and archives the smoke reports as the `benchmark-release-smoke` artifact.
+
+The workflow does not add model calls, Ollama setup, provider secrets, orchestration, benchmark generation, or real repository editing.
+
 ## Manifest Consistency Checks
 
 Confirm:
