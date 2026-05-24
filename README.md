@@ -43,3 +43,7 @@ Before claiming the deterministic benchmark plumbing is healthy, use `docs/DETER
 ## Example candidate files
 
 Passing candidate JSON templates for every executable benchmark live in `examples/candidates/`. Start with `examples/candidates/docs_single_file_edit.pass.json` for the simplest edit benchmark, or use the matching `<benchmarkId>.pass.json` file as the payload shape for a specific verifier. See `examples/README.md` for field shapes and benchmark-specific guidance.
+
+## Ariadne repo scanner
+
+`scanRepoContext(root)` provides Ariadne v0's read-only repository snapshot. It records package manager, package scripts, included source/config/docs file metadata, ignored directories, and scanner warnings without reading full file contents or mutating the scanned repository.

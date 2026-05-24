@@ -63,3 +63,10 @@ export {
   type CandidateExampleManifestValidationError,
   type CandidateExampleManifestValidationResult
 } from "./core/examples/candidateManifest.js";
+export { repoScannerIgnoredDirs, repoScannerIncludedExtensions, scanRepoContext } from "./core/context/repoScanner.js";
+export {
+  type RepoContextFileEntry,
+  type RepoContextSnapshot,
+  type RepoContextWarning,
+  type RepoPackageManager
+} from "./core/context/repoSnapshot.js";
