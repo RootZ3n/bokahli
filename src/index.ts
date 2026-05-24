@@ -63,6 +63,14 @@ export {
   type CandidateExampleManifestValidationError,
   type CandidateExampleManifestValidationResult
 } from "./core/examples/candidateManifest.js";
+export {
+  loadContextPacketExampleManifest,
+  validateContextPacketExampleManifest,
+  type ContextPacketExampleManifest,
+  type ContextPacketExampleManifestTemplate,
+  type ContextPacketExampleManifestValidationError,
+  type ContextPacketExampleManifestValidationResult
+} from "./core/examples/contextPacketManifest.js";
 export { repoScannerIgnoredDirs, repoScannerIncludedExtensions, scanRepoContext } from "./core/context/repoScanner.js";
 export {
   buildRepoContextMap,

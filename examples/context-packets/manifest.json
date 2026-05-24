@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "generatedBy": "manual",
+  "templates": [
+    {
+      "id": "config_patch_one_file",
+      "path": "examples/context-packets/config_patch_one_file.packet.json",
+      "taskType": "patch_one_file",
+      "goal": "Update config metadata",
+      "selectedPaths": [
+        "config.json"
+      ],
+      "allowedFiles": [
+        "config.json"
+      ],
+      "description": "Context packet for a single-file config metadata patch task."
+    },
+    {
+      "id": "readme_patch_one_file",
+      "path": "examples/context-packets/readme_patch_one_file.packet.json",
+      "taskType": "patch_one_file",
+      "goal": "Update README usage text",
+      "selectedPaths": [
+        "README.md"
+      ],
+      "allowedFiles": [
+        "README.md"
+      ],
+      "description": "Context packet for a single-file README patch task."
+    }
+  ]
+}
