@@ -154,6 +154,14 @@ pnpm candidates:evaluate -- --candidate /tmp/scintilla-candidate.json --benchmar
 
 `examples/mock-pipeline/manifest.json` is the machine-readable index for tooling and future Aedis integration. It maps each result fixture to its benchmark ID, scenario, expected status, and path so tools do not need to parse filenames.
 
+List mock-pipeline result fixtures with:
+
+```sh
+pnpm mock-pipeline-results:list
+pnpm mock-pipeline-results:list -- --json
+pnpm mock-pipeline-results:list -- --benchmark docs_single_file_edit
+```
+
 List context packet templates with:
 
 ```sh
