@@ -45,3 +45,15 @@ Baseline benchmarks are restricted to `P0`. `messy_prompt_resilience` is intenti
 Every benchmark requires verifier evidence. Acceptable evidence includes changed-file inspection, relevant diffs, parsed config output, test output, typecheck output, or cited repository context.
 
 No benchmark accepts a model self-claim as success. The verifier must confirm the expected files, behavior, and scope independently from the model's final statement.
+
+## Executable Fixtures
+
+`docs_single_file_edit` now has a deterministic executable fixture and verifier:
+
+- Fixture metadata: `src/core/benchmark/fixtures.ts`
+- Verifier: `src/core/benchmark/docsSingleFileEditVerifier.ts`
+- Fixture repo: `tests/fixtures/docs-single-file-edit`
+
+The task is to update `README.md` so the Usage section mentions `npm run doctor`. A passing candidate must change `README.md`, provide updated `README.md` content containing `npm run doctor`, leave `package.json` unchanged, and avoid unrelated files.
+
+Failing candidates include package-only edits, README edits that omit `npm run doctor`, unrelated file additions, wrong benchmark IDs, and success claims without diff evidence. The verifier is deterministic and makes no model calls, Ollama calls, external repository edits, or orchestration calls.
