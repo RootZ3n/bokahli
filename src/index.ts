@@ -123,6 +123,13 @@ export {
   type WorkerMode,
   type WorkerResult
 } from "./core/workers/types.js";
+export { runMockPipeline } from "./core/pipeline/mockPipeline.js";
+export {
+  type MockPipelineError,
+  type MockPipelineFailureStatus,
+  type MockPipelineInput,
+  type MockPipelineResult
+} from "./core/pipeline/types.js";
 export {
   type RepoContextFileEntry,
   type RepoContextSnapshot,

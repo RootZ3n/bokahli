@@ -2,7 +2,7 @@
 
 ## Current Status
 
-Scintilla is experimental. It has deterministic benchmark, context, contract, and mock-worker plumbing, but it does not call real models yet.
+Scintilla is experimental. It has deterministic benchmark, context, contract, mock-worker, and mock-pipeline plumbing, but it does not call real models yet.
 
 Current non-goals remain:
 
@@ -11,7 +11,7 @@ Current non-goals remain:
 - no orchestration or Aedis integration
 - no real repository editing
 
-The deterministic benchmark release smoke now checks the benchmark/context/contract/mock-worker path end to end without leaving the deterministic test-double layer.
+The deterministic benchmark release smoke now checks the benchmark/context/contract/mock-worker path end to end without leaving the deterministic test-double layer. The in-memory mock pipeline API composes the same deterministic path for tests and future tooling.
 
 ## What The Smoke Certifies
 
@@ -27,6 +27,7 @@ The deterministic benchmark release smoke now checks the benchmark/context/contr
 - mock-worker generated candidate output
 - generated candidate validation
 - generated candidate evaluation
+- in-memory mock pipeline stage separation
 
 The mock-worker path proves this deterministic chain:
 
@@ -36,6 +37,8 @@ TaskContract + ContextPacket + scenario
 -> candidate validation
 -> benchmark evaluation
 ```
+
+The mock pipeline API exposes that chain as a structured in-memory result without shelling out or writing files.
 
 ## What The Smoke Does Not Certify
 
@@ -93,11 +96,11 @@ pnpm benchmark:release-smoke -- --json
 
 ## Next Development Milestone
 
-The next milestone is a deterministic mock pipeline runner API:
+The next milestone is a deterministic mock pipeline CLI or smoke integration:
 
 ```txt
 contract + context packet + scenario
--> mock worker
+-> mock pipeline
 -> candidate validation
 -> benchmark evaluation
 -> structured result

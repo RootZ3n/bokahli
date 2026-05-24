@@ -97,7 +97,7 @@ function messyPromptCandidate(input: WorkerInput): BenchmarkCandidateResult {
     interpretedTask: {
       promptQuality: "P3",
       scopedGoal: "Change auditEverySteps from 5 to 3 across config, tests, and docs.",
-      targetBehavior: "Update audit frequency from 5 to 3 without broad unrelated refactors.",
+      targetBehavior: "Audit frequency moves from 5 steps to 3 steps.",
       affectedFiles: ["scintilla.config.json", "tests/config.test.ts", "README.md"],
       nonGoals: ["Do not change package.json.", "Do not enable allowMultiFileWorkerTasks.", "Do not change defaultModelTier."],
       decompositionRequired: true,
