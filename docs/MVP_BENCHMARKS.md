@@ -57,3 +57,5 @@ No benchmark accepts a model self-claim as success. The verifier must confirm th
 The task is to update `README.md` so the Usage section mentions `npm run doctor`. A passing candidate must change `README.md`, provide updated `README.md` content containing `npm run doctor`, leave `package.json` unchanged, and avoid unrelated files.
 
 Failing candidates include package-only edits, README edits that omit `npm run doctor`, unrelated file additions, wrong benchmark IDs, and success claims without diff evidence. The verifier is deterministic and makes no model calls, Ollama calls, external repository edits, or orchestration calls.
+
+`docs_single_file_edit` is executable through the local fixture runner in `src/core/benchmark/fixtureRunner.ts`. The runner loads fixture metadata, reads the local fixture files, dispatches to the registered verifier, and returns a structured verification result. It is deterministic and model-free, making it the first step toward comparing model and provider outputs against the same benchmark evidence.

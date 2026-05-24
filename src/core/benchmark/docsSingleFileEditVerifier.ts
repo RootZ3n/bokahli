@@ -20,7 +20,7 @@ export function verifyDocsSingleFileEdit(candidate: BenchmarkCandidateResult): B
   const evidence: string[] = [];
   const changedFiles = new Set(candidate.changedFiles);
   const fileContentPaths = Object.keys(candidate.fileContents);
-  const allowlist = new Set(docsSingleFileEditFixture.allowlistFiles);
+  const allowlist = new Set(docsSingleFileEditFixture.allowedFiles);
 
   if (candidate.benchmarkId === benchmarkId) {
     passedChecks.push("benchmark id matches docs_single_file_edit");
