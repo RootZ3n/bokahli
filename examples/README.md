@@ -134,8 +134,12 @@ These examples are not model outputs yet. They do not prove a model can generate
 `examples/contracts/readme_patch_one_file.contract.json` is a matching TaskContract example that can drive packet creation directly:
 
 ```sh
+pnpm contracts:list
+pnpm contracts:list -- --json
 pnpm ariadne:packet -- --repo tests/fixtures/simple-ts-repo --contract examples/contracts/readme_patch_one_file.contract.json --json
 ```
+
+`examples/contracts/manifest.json` is the machine-readable index for contract templates. It maps each template to its task type, prompt quality, allowed files, and path so tooling does not need to parse filenames.
 
 List context packet templates with:
 

@@ -14,6 +14,7 @@
     "candidates:validate": "node dist/cli/index.js candidates validate",
     "candidates:evaluate": "node dist/cli/index.js candidates evaluate",
     "examples:list": "node dist/cli/index.js examples list",
+    "contracts:list": "node dist/cli/index.js contracts list",
     "context-packets:list": "node dist/cli/index.js context-packets list",
     "ariadne:scan": "node dist/cli/index.js ariadne scan",
     "ariadne:packet": "node dist/cli/index.js ariadne packet",

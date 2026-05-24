@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "generatedBy": "manual",
+  "templates": [
+    {
+      "id": "readme_patch_one_file",
+      "path": "examples/contracts/readme_patch_one_file.contract.json",
+      "taskType": "patch_one_file",
+      "promptQuality": "P0",
+      "allowedFiles": ["README.md"],
+      "description": "Task contract for a single-file README patch context packet."
+    }
+  ]
+}

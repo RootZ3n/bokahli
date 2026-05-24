@@ -71,6 +71,14 @@ export {
   type ContextPacketExampleManifestValidationError,
   type ContextPacketExampleManifestValidationResult
 } from "./core/examples/contextPacketManifest.js";
+export {
+  loadContractExampleManifest,
+  validateContractExampleManifest,
+  type ContractExampleManifest,
+  type ContractExampleManifestTemplate,
+  type ContractExampleManifestValidationError,
+  type ContractExampleManifestValidationResult
+} from "./core/examples/contractManifest.js";
 export { repoScannerIgnoredDirs, repoScannerIncludedExtensions, scanRepoContext } from "./core/context/repoScanner.js";
 export {
   buildRepoContextMap,
