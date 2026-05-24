@@ -100,6 +100,15 @@ Run the machine-readable smoke locally:
 pnpm benchmark:release-smoke -- --json
 ```
 
+Inspect checked-in mock-pipeline result fixtures without running the pipeline:
+
+```sh
+pnpm mock-pipeline-results:list
+pnpm mock-pipeline-results:list -- --json
+pnpm mock-pipeline-results:list -- --benchmark docs_single_file_edit
+pnpm mock-pipeline-results:list -- --status passed
+```
+
 ## Release Notes
 
 ### 2026-05-24
