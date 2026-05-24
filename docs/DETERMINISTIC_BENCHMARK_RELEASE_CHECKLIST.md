@@ -26,6 +26,12 @@ pnpm build
 
 All three commands must pass before claiming deterministic benchmark plumbing is healthy.
 
+To run the required commands and CLI smoke checks together, use:
+
+```sh
+pnpm benchmark:release-smoke
+```
+
 ## CLI Smoke Commands
 
 Run:
