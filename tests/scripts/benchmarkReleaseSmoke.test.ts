@@ -1,11 +1,16 @@
+import { mkdtemp, readdir } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   formatSmokeTable,
   getSmokeCounts,
   getBenchmarkReleaseSmokeCommands,
+  getMockWorkerCandidateSmokeCommands,
   runBenchmarkReleaseSmoke,
   toSmokeJsonReport,
   type SmokeCommand,
+  type SmokeCommandOutput,
   type SmokeCommandRunner
 } from "../../scripts/benchmark-release-smoke.js";
 
@@ -19,9 +24,36 @@ const ariadneCheckIds = [
 ];
 
 const contractCheckIds = ["contracts-list", "contracts-list-json", "contracts-list-readme", "ariadne-packet-readme-contract-json"];
+const mockWorkerCandidateCheckIds = ["mock-worker-candidate-only", "mock-worker-candidate-validate", "mock-worker-candidate-evaluate"];
 
-function runnerWith(overrides: Readonly<Record<string, number>> = {}): SmokeCommandRunner {
-  return async (command: SmokeCommand) => overrides[command.id] ?? command.expectedExitCode;
+const mockCandidateJson = JSON.stringify({
+  benchmarkId: "docs_single_file_edit",
+  changedFiles: ["README.md"],
+  fileContents: {
+    "README.md": "## Usage\nRun npm run doctor before submitting changes.\n"
+  }
+});
+
+function expectedSmokeCheckCount(): number {
+  return getBenchmarkReleaseSmokeCommands().length + mockWorkerCandidateCheckIds.length;
+}
+
+function runnerWith(overrides: Readonly<Record<string, number | SmokeCommandOutput>> = {}): SmokeCommandRunner {
+  return async (command: SmokeCommand) => {
+    const override = overrides[command.id];
+    if (override !== undefined) {
+      return override;
+    }
+
+    if (command.id === "mock-worker-candidate-only") {
+      return {
+        exitCode: command.expectedExitCode,
+        stdout: mockCandidateJson
+      };
+    }
+
+    return command.expectedExitCode;
+  };
 }
 
 describe("benchmark release smoke script", () => {
@@ -90,8 +122,8 @@ describe("benchmark release smoke script", () => {
     expect(commandIds).toEqual(expect.arrayContaining(ariadneCheckIds));
     expect(commands).toHaveLength(21);
     expect(getSmokeCounts(result)).toEqual({
-      total: 21,
-      passed: 21,
+      total: expectedSmokeCheckCount(),
+      passed: expectedSmokeCheckCount(),
       failed: 0
     });
   });
@@ -120,14 +152,76 @@ describe("benchmark release smoke script", () => {
     expect(formatSmokeTable(result)).toContain("SCINTILLA_BENCHMARK_PLUMBING_STATUS=NOT_READY");
   });
 
+  it("successful mock-worker candidate-only path contributes to success", async () => {
+    const result = await runBenchmarkReleaseSmoke(runnerWith());
+    const resultIds = result.results.map((entry) => entry.id);
+
+    expect(result.ok).toBe(true);
+    expect(resultIds).toEqual(expect.arrayContaining(mockWorkerCandidateCheckIds));
+    expect(getSmokeCounts(result)).toEqual({
+      total: expectedSmokeCheckCount(),
+      passed: expectedSmokeCheckCount(),
+      failed: 0
+    });
+  });
+
+  it("mock-worker generation failure causes NOT_READY", async () => {
+    const result = await runBenchmarkReleaseSmoke(
+      runnerWith({
+        "mock-worker-candidate-only": {
+          exitCode: 2,
+          stdout: ""
+        }
+      })
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.results.find((entry) => entry.id === "mock-worker-candidate-only")).toMatchObject({
+      expectedExitCode: 0,
+      actualExitCode: 2,
+      ok: false
+    });
+    expect(formatSmokeTable(result)).toContain("SCINTILLA_BENCHMARK_PLUMBING_STATUS=NOT_READY");
+  });
+
+  it("validation failure of generated candidate causes NOT_READY", async () => {
+    const result = await runBenchmarkReleaseSmoke(runnerWith({ "mock-worker-candidate-validate": 1 }));
+
+    expect(result.ok).toBe(false);
+    expect(result.results.find((entry) => entry.id === "mock-worker-candidate-validate")).toMatchObject({
+      expectedExitCode: 0,
+      actualExitCode: 1,
+      ok: false
+    });
+  });
+
+  it("evaluation failure of generated candidate causes NOT_READY", async () => {
+    const result = await runBenchmarkReleaseSmoke(runnerWith({ "mock-worker-candidate-evaluate": 1 }));
+
+    expect(result.ok).toBe(false);
+    expect(result.results.find((entry) => entry.id === "mock-worker-candidate-evaluate")).toMatchObject({
+      expectedExitCode: 0,
+      actualExitCode: 1,
+      ok: false
+    });
+  });
+
+  it("generated candidate temp file is cleaned up", async () => {
+    const tempRoot = await mkdtemp(path.join(tmpdir(), "scintilla-smoke-test-"));
+
+    await runBenchmarkReleaseSmoke(runnerWith(), { tempRoot });
+
+    expect(await readdir(tempRoot)).toEqual([]);
+  });
+
   it("reports total, passed, and failed counts", async () => {
     const result = await runBenchmarkReleaseSmoke(runnerWith({ typecheck: 2, build: 1 }));
     const counts = getSmokeCounts(result);
     const table = formatSmokeTable(result);
 
     expect(counts).toEqual({
-      total: getBenchmarkReleaseSmokeCommands().length,
-      passed: getBenchmarkReleaseSmokeCommands().length - 2,
+      total: expectedSmokeCheckCount(),
+      passed: expectedSmokeCheckCount() - 2,
       failed: 2
     });
     expect(table).toContain(`SCINTILLA_BENCHMARK_PLUMBING_CHECKS_TOTAL=${counts.total}`);
@@ -141,7 +235,7 @@ describe("benchmark release smoke script", () => {
     const parsed = JSON.parse(jsonText) as ReturnType<typeof toSmokeJsonReport>;
 
     expect(parsed.status).toBe("BENCHMARK_PLUMBING_READY");
-    expect(parsed.checksTotal).toBe(getBenchmarkReleaseSmokeCommands().length);
+    expect(parsed.checksTotal).toBe(expectedSmokeCheckCount());
     expect(parsed.checksFailed).toBe(0);
     expect(parsed.checks[0]).toMatchObject({
       name: "typecheck",
@@ -179,6 +273,15 @@ describe("benchmark release smoke script", () => {
     expect(checkNames).toEqual(expect.arrayContaining(contractCheckIds));
   });
 
+  it("JSON report includes mock-worker candidate checks", async () => {
+    const result = await runBenchmarkReleaseSmoke(runnerWith());
+    const json = toSmokeJsonReport(result);
+    const checkNames = json.checks.map((check) => check.name);
+
+    expect(json.status).toBe("BENCHMARK_PLUMBING_READY");
+    expect(checkNames).toEqual(expect.arrayContaining(mockWorkerCandidateCheckIds));
+  });
+
   it("context packet list checks are included", () => {
     const commands = getBenchmarkReleaseSmokeCommands();
 
@@ -210,12 +313,27 @@ describe("benchmark release smoke script", () => {
     expect(commands.filter((command) => command.args.includes("examples/contracts/readme_patch_one_file.contract.json"))).toHaveLength(1);
   });
 
+  it("mock-worker candidate-only command uses pnpm --silent for captured JSON", () => {
+    const [generateCommand] = getMockWorkerCandidateSmokeCommands("/tmp/scintilla-candidate.json");
+
+    expect(generateCommand).toEqual(
+      expect.objectContaining({
+        id: "mock-worker-candidate-only",
+        args: expect.arrayContaining(["--silent", "mock-worker:run", "--candidate-only"]),
+        captureStdout: true
+      })
+    );
+  });
+
   it("keeps BLOCKED reserved for future classified environment blockage", () => {
     expect(["BENCHMARK_PLUMBING_READY", "NOT_READY", "BLOCKED"]).toContain("BLOCKED");
   });
 
   it("does not include model, network, or orchestration commands", () => {
-    const commandText = getBenchmarkReleaseSmokeCommands()
+    const commandText = [
+      ...getBenchmarkReleaseSmokeCommands(),
+      ...getMockWorkerCandidateSmokeCommands("/tmp/scintilla-candidate.json")
+    ]
       .map((command) => [command.command, ...command.args].join(" "))
       .join("\n");
 

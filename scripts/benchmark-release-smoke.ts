@@ -1,4 +1,7 @@
 import { spawn } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 export interface SmokeCommand {
@@ -6,6 +9,7 @@ export interface SmokeCommand {
   readonly command: "pnpm";
   readonly args: readonly string[];
   readonly expectedExitCode: number;
+  readonly captureStdout?: boolean;
 }
 
 export interface SmokeCommandResult extends SmokeCommand {
@@ -42,7 +46,16 @@ export interface SmokeJsonReport {
   readonly checks: readonly SmokeJsonCheck[];
 }
 
-export type SmokeCommandRunner = (command: SmokeCommand) => Promise<number>;
+export interface SmokeCommandOutput {
+  readonly exitCode: number;
+  readonly stdout?: string;
+}
+
+export type SmokeCommandRunner = (command: SmokeCommand) => Promise<number | SmokeCommandOutput>;
+
+export interface SmokeRunOptions {
+  readonly tempRoot?: string;
+}
 
 export interface SpawnRunnerOptions {
   readonly redirectOutputToStderr?: boolean;
@@ -224,6 +237,41 @@ export function getBenchmarkReleaseSmokeCommands(): readonly SmokeCommand[] {
   ];
 }
 
+export function getMockWorkerCandidateSmokeCommands(candidatePath: string): readonly SmokeCommand[] {
+  return [
+    {
+      id: "mock-worker-candidate-only",
+      command: "pnpm",
+      args: [
+        "--silent",
+        "mock-worker:run",
+        "--",
+        "--contract",
+        "examples/contracts/readme_patch_one_file.contract.json",
+        "--context-packet",
+        "examples/context-packets/readme_patch_one_file.packet.json",
+        "--scenario",
+        "valid_docs_single_file_edit",
+        "--candidate-only"
+      ],
+      expectedExitCode: 0,
+      captureStdout: true
+    },
+    {
+      id: "mock-worker-candidate-validate",
+      command: "pnpm",
+      args: ["candidates:validate", "--", "--candidate", candidatePath, "--benchmark", "docs_single_file_edit"],
+      expectedExitCode: 0
+    },
+    {
+      id: "mock-worker-candidate-evaluate",
+      command: "pnpm",
+      args: ["candidates:evaluate", "--", "--candidate", candidatePath, "--benchmark", "docs_single_file_edit"],
+      expectedExitCode: 0
+    }
+  ];
+}
+
 export function formatSmokeCommand(command: SmokeCommand): string {
   return [command.command, ...command.args].join(" ");
 }
@@ -233,30 +281,95 @@ export function createSpawnRunner(options: SpawnRunnerOptions = {}): SmokeComman
     new Promise((resolve) => {
       const child = spawn(command.command, command.args, {
         shell: false,
-        stdio: options.redirectOutputToStderr ? ["ignore", "pipe", "pipe"] : "inherit"
+        stdio: options.redirectOutputToStderr || command.captureStdout ? ["ignore", "pipe", "pipe"] : "inherit"
       });
+      let stdout = "";
 
-      if (options.redirectOutputToStderr && child.stdout !== null && child.stderr !== null) {
-        child.stdout.pipe(process.stderr);
+      if (child.stdout !== null) {
+        if (command.captureStdout) {
+          child.stdout.setEncoding("utf8");
+          child.stdout.on("data", (chunk: string) => {
+            stdout += chunk;
+          });
+        } else if (options.redirectOutputToStderr) {
+          child.stdout.pipe(process.stderr);
+        }
+      }
+
+      if ((options.redirectOutputToStderr || command.captureStdout) && child.stderr !== null) {
         child.stderr.pipe(process.stderr);
       }
 
-      child.on("error", () => resolve(127));
-      child.on("close", (code) => resolve(code ?? 1));
+      child.on("error", () => resolve(command.captureStdout ? { exitCode: 127, stdout } : 127));
+      child.on("close", (code) => resolve(command.captureStdout ? { exitCode: code ?? 1, stdout } : (code ?? 1)));
     });
 }
 
-export async function runBenchmarkReleaseSmoke(runner: SmokeCommandRunner = createSpawnRunner()): Promise<SmokeRunResult> {
+function normalizeCommandOutput(output: number | SmokeCommandOutput): SmokeCommandOutput {
+  return typeof output === "number" ? { exitCode: output } : output;
+}
+
+async function runSmokeCommand(command: SmokeCommand, runner: SmokeCommandRunner): Promise<SmokeCommandResult & { readonly stdout?: string }> {
+  const output = normalizeCommandOutput(await runner(command));
+  return {
+    ...command,
+    actualExitCode: output.exitCode,
+    ok: output.exitCode === command.expectedExitCode,
+    stdout: output.stdout
+  };
+}
+
+function failedResult(command: SmokeCommand): SmokeCommandResult {
+  return {
+    ...command,
+    actualExitCode: 1,
+    ok: false
+  };
+}
+
+async function runMockWorkerCandidatePath(
+  runner: SmokeCommandRunner,
+  results: SmokeCommandResult[],
+  options: SmokeRunOptions
+): Promise<void> {
+  const tempDir = await mkdtemp(path.join(options.tempRoot ?? tmpdir(), "scintilla-smoke-"));
+  const candidatePath = path.join(tempDir, "mock-worker-candidate.json");
+  const commands = getMockWorkerCandidateSmokeCommands(candidatePath);
+  const generateCommand = commands[0] as SmokeCommand;
+  const validateCommand = commands[1] as SmokeCommand;
+  const evaluateCommand = commands[2] as SmokeCommand;
+
+  try {
+    const generateResult = await runSmokeCommand(generateCommand, runner);
+    results.push(generateResult);
+
+    if (!generateResult.ok || generateResult.stdout === undefined || generateResult.stdout.length === 0) {
+      results.push(failedResult(validateCommand), failedResult(evaluateCommand));
+      return;
+    }
+
+    await writeFile(candidatePath, generateResult.stdout, "utf8");
+    results.push(await runSmokeCommand(validateCommand, runner));
+    results.push(await runSmokeCommand(evaluateCommand, runner));
+  } finally {
+    await rm(tempDir, {
+      recursive: true,
+      force: true
+    });
+  }
+}
+
+export async function runBenchmarkReleaseSmoke(
+  runner: SmokeCommandRunner = createSpawnRunner(),
+  options: SmokeRunOptions = {}
+): Promise<SmokeRunResult> {
   const results: SmokeCommandResult[] = [];
 
   for (const command of getBenchmarkReleaseSmokeCommands()) {
-    const actualExitCode = await runner(command);
-    results.push({
-      ...command,
-      actualExitCode,
-      ok: actualExitCode === command.expectedExitCode
-    });
+    results.push(await runSmokeCommand(command, runner));
   }
+
+  await runMockWorkerCandidatePath(runner, results, options);
 
   return {
     ok: results.every((result) => result.ok),

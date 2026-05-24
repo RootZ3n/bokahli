@@ -63,9 +63,14 @@ pnpm contracts:list
 pnpm contracts:list -- --json
 pnpm contracts:list -- --id readme_patch_one_file
 pnpm ariadne:packet -- --repo tests/fixtures/simple-ts-repo --contract examples/contracts/readme_patch_one_file.contract.json --json
+pnpm --silent mock-worker:run -- --contract examples/contracts/readme_patch_one_file.contract.json --context-packet examples/context-packets/readme_patch_one_file.packet.json --scenario valid_docs_single_file_edit --candidate-only
+pnpm candidates:validate -- --candidate <generated mock-worker candidate JSON> --benchmark docs_single_file_edit
+pnpm candidates:evaluate -- --candidate <generated mock-worker candidate JSON> --benchmark docs_single_file_edit
 ```
 
-The final command is expected to exit `1` because `docs_single_file_edit.fail.json` has a valid candidate shape but fails deterministic verification.
+The `docs_single_file_edit.fail.json` evaluation command is expected to exit `1` because it has a valid candidate shape but fails deterministic verification.
+
+The smoke script captures mock-worker candidate JSON with `pnpm --silent` so pnpm lifecycle text cannot contaminate the generated candidate file. It writes the captured JSON to a temporary file, validates it, evaluates it, and then removes the temp file. This path remains deterministic and model-free.
 
 ## Expected Exit Codes
 
