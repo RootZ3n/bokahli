@@ -12,7 +12,7 @@ This checklist covers Scintilla's deterministic benchmark plumbing, Ariadne read
 - CLI listing, validation, evaluation, and examples commands
 - example candidate manifest
 - Ariadne repo scan, context packet, and context packet example listing commands
-- TaskContract examples and manifest listing commands
+- TaskContract examples, manifest listing commands, and contract-mode Ariadne packet checks
 
 It does not certify local model generation, Ollama integration, orchestration, Aedis integration, or real repository editing.
 
@@ -143,9 +143,9 @@ The artifact includes both:
 - `benchmark-release-smoke.txt`
 - `benchmark-release-smoke.json`
 
-The archived reports cover deterministic benchmark plumbing, candidate examples and manifests, Ariadne read-only scan, packet, and context-packet template tooling, and TaskContract template discovery.
+The archived reports cover deterministic benchmark plumbing, candidate examples and manifests, Ariadne read-only scan, packet, and context-packet template tooling, TaskContract template discovery, and contract-mode Ariadne packet generation.
 
-The workflow does not add model calls, Ollama setup, provider secrets, orchestration, Aedis integration, benchmark generation, or real repository editing. Ariadne checks are read-only context tooling checks only.
+The workflow does not add model calls, Ollama setup, provider secrets, orchestration, Aedis integration, benchmark generation, or real repository editing. Ariadne and contract checks are read-only context/tooling checks only.
 
 ## Manifest Consistency Checks
 
