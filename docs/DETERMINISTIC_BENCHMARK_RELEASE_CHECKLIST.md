@@ -32,6 +32,12 @@ To run the required commands and CLI smoke checks together, use:
 pnpm benchmark:release-smoke
 ```
 
+For machine-readable output, use:
+
+```sh
+pnpm benchmark:release-smoke -- --json
+```
+
 ## CLI Smoke Commands
 
 Run:
@@ -73,6 +79,46 @@ The final command is expected to exit `1` because `docs_single_file_edit.fail.js
 - `0`: benchmark passed
 - `1`: benchmark verification failed
 - `2`: usage, load, validation, unknown benchmark, or benchmark mismatch failure
+
+## CI/Scrapeable Status Convention
+
+In normal text mode, `pnpm benchmark:release-smoke` prints exactly one final status line:
+
+```txt
+SCINTILLA_BENCHMARK_PLUMBING_STATUS=BENCHMARK_PLUMBING_READY
+```
+
+On deterministic smoke failure, the final line is:
+
+```txt
+SCINTILLA_BENCHMARK_PLUMBING_STATUS=NOT_READY
+```
+
+`BLOCKED` is reserved for future environment or sandbox blockage classification:
+
+```txt
+SCINTILLA_BENCHMARK_PLUMBING_STATUS=BLOCKED
+```
+
+The smoke output also includes:
+
+```txt
+SCINTILLA_BENCHMARK_PLUMBING_CHECKS_TOTAL=<number>
+SCINTILLA_BENCHMARK_PLUMBING_CHECKS_PASSED=<number>
+SCINTILLA_BENCHMARK_PLUMBING_CHECKS_FAILED=<number>
+```
+
+The status line is the last non-empty line in normal text mode:
+
+```sh
+pnpm benchmark:release-smoke | tail -1
+```
+
+In JSON mode, stdout is only JSON:
+
+```sh
+pnpm benchmark:release-smoke -- --json
+```
 
 ## Manifest Consistency Checks
 

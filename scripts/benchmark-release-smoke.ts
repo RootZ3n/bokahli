@@ -13,12 +13,40 @@ export interface SmokeCommandResult extends SmokeCommand {
   readonly ok: boolean;
 }
 
+export type SmokeStatus = "BENCHMARK_PLUMBING_READY" | "NOT_READY" | "BLOCKED";
+
 export interface SmokeRunResult {
   readonly ok: boolean;
   readonly results: readonly SmokeCommandResult[];
 }
 
+export interface SmokeCounts {
+  readonly total: number;
+  readonly passed: number;
+  readonly failed: number;
+}
+
+export interface SmokeJsonCheck {
+  readonly name: string;
+  readonly expectedExit: number | "zero";
+  readonly actualExit: number | null;
+  readonly status: "pass" | "fail" | "blocked";
+  readonly command: readonly string[];
+}
+
+export interface SmokeJsonReport {
+  readonly status: SmokeStatus;
+  readonly checksTotal: number;
+  readonly checksPassed: number;
+  readonly checksFailed: number;
+  readonly checks: readonly SmokeJsonCheck[];
+}
+
 export type SmokeCommandRunner = (command: SmokeCommand) => Promise<number>;
+
+export interface SpawnRunnerOptions {
+  readonly redirectOutputToStderr?: boolean;
+}
 
 export function getBenchmarkReleaseSmokeCommands(): readonly SmokeCommand[] {
   return [
@@ -116,13 +144,18 @@ export function formatSmokeCommand(command: SmokeCommand): string {
   return [command.command, ...command.args].join(" ");
 }
 
-export function createSpawnRunner(): SmokeCommandRunner {
+export function createSpawnRunner(options: SpawnRunnerOptions = {}): SmokeCommandRunner {
   return (command) =>
     new Promise((resolve) => {
       const child = spawn(command.command, command.args, {
         shell: false,
-        stdio: "inherit"
+        stdio: options.redirectOutputToStderr ? ["ignore", "pipe", "pipe"] : "inherit"
       });
+
+      if (options.redirectOutputToStderr && child.stdout !== null && child.stderr !== null) {
+        child.stdout.pipe(process.stderr);
+        child.stderr.pipe(process.stderr);
+      }
 
       child.on("error", () => resolve(127));
       child.on("close", (code) => resolve(code ?? 1));
@@ -147,8 +180,25 @@ export async function runBenchmarkReleaseSmoke(runner: SmokeCommandRunner = crea
   };
 }
 
+export function getSmokeStatus(result: SmokeRunResult): SmokeStatus {
+  return result.ok ? "BENCHMARK_PLUMBING_READY" : "NOT_READY";
+}
+
+export function getSmokeCounts(result: SmokeRunResult): SmokeCounts {
+  const passed = result.results.filter((entry) => entry.ok).length;
+  const total = result.results.length;
+
+  return {
+    total,
+    passed,
+    failed: total - passed
+  };
+}
+
 export function formatSmokeTable(result: SmokeRunResult): string {
   const lines = ["status | expected | actual | command", "--- | ---: | ---: | ---"];
+  const counts = getSmokeCounts(result);
+  const status = getSmokeStatus(result);
 
   for (const commandResult of result.results) {
     lines.push(
@@ -157,13 +207,35 @@ export function formatSmokeTable(result: SmokeRunResult): string {
   }
 
   lines.push("");
-  lines.push(result.ok ? "BENCHMARK_PLUMBING_READY" : "NOT_READY");
+  lines.push(`SCINTILLA_BENCHMARK_PLUMBING_CHECKS_TOTAL=${counts.total}`);
+  lines.push(`SCINTILLA_BENCHMARK_PLUMBING_CHECKS_PASSED=${counts.passed}`);
+  lines.push(`SCINTILLA_BENCHMARK_PLUMBING_CHECKS_FAILED=${counts.failed}`);
+  lines.push(`SCINTILLA_BENCHMARK_PLUMBING_STATUS=${status}`);
   return lines.join("\n");
 }
 
+export function toSmokeJsonReport(result: SmokeRunResult): SmokeJsonReport {
+  const counts = getSmokeCounts(result);
+
+  return {
+    status: getSmokeStatus(result),
+    checksTotal: counts.total,
+    checksPassed: counts.passed,
+    checksFailed: counts.failed,
+    checks: result.results.map((entry) => ({
+      name: entry.id,
+      expectedExit: entry.expectedExitCode,
+      actualExit: entry.actualExitCode,
+      status: entry.ok ? "pass" : "fail",
+      command: [entry.command, ...entry.args]
+    }))
+  };
+}
+
 async function main(): Promise<void> {
-  const result = await runBenchmarkReleaseSmoke();
-  console.log(formatSmokeTable(result));
+  const json = process.argv.slice(2).filter((arg) => arg !== "--").includes("--json");
+  const result = await runBenchmarkReleaseSmoke(createSpawnRunner({ redirectOutputToStderr: json }));
+  console.log(json ? JSON.stringify(toSmokeJsonReport(result), null, 2) : formatSmokeTable(result));
   process.exit(result.ok ? 0 : 1);
 }
 
