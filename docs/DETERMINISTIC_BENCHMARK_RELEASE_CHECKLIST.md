@@ -2,7 +2,7 @@
 
 ## Scope
 
-This checklist covers Scintilla's deterministic benchmark plumbing, Ariadne read-only context tooling, contract template discovery, and mock-worker generated-candidate validation:
+This checklist covers Scintilla's deterministic benchmark plumbing, Ariadne read-only context tooling, contract template discovery, mock-worker generated-candidate validation, and mock-pipeline checks:
 
 - benchmark registry
 - local fixtures
@@ -14,6 +14,7 @@ This checklist covers Scintilla's deterministic benchmark plumbing, Ariadne read
 - Ariadne repo scan, context packet, and context packet example listing commands
 - TaskContract examples, manifest listing commands, and contract-mode Ariadne packet checks
 - mock-worker candidate generation, generated candidate validation, and generated candidate evaluation
+- in-memory mock pipeline CLI pass, refusal, and invalid-candidate behavior
 
 It does not certify real model calls, Ollama integration, model quality, orchestration, Aedis integration, or real repository editing.
 
@@ -64,6 +65,9 @@ pnpm contracts:list
 pnpm contracts:list -- --json
 pnpm contracts:list -- --id readme_patch_one_file
 pnpm ariadne:packet -- --repo tests/fixtures/simple-ts-repo --contract examples/contracts/readme_patch_one_file.contract.json --json
+pnpm mock-pipeline:run -- --contract examples/contracts/readme_patch_one_file.contract.json --context-packet examples/context-packets/readme_patch_one_file.packet.json --scenario valid_docs_single_file_edit --benchmark docs_single_file_edit --json
+pnpm mock-pipeline:run -- --contract examples/contracts/readme_patch_one_file.contract.json --context-packet examples/context-packets/readme_patch_one_file.packet.json --scenario refusal_uncertain --benchmark docs_single_file_edit --json
+pnpm mock-pipeline:run -- --contract examples/contracts/readme_patch_one_file.contract.json --context-packet examples/context-packets/readme_patch_one_file.packet.json --scenario invalid_schema --benchmark docs_single_file_edit --json
 pnpm --silent mock-worker:run -- --contract examples/contracts/readme_patch_one_file.contract.json --context-packet examples/context-packets/readme_patch_one_file.packet.json --scenario valid_docs_single_file_edit --candidate-only
 pnpm candidates:validate -- --candidate <generated mock-worker candidate JSON> --benchmark docs_single_file_edit
 pnpm candidates:evaluate -- --candidate <generated mock-worker candidate JSON> --benchmark docs_single_file_edit
@@ -72,6 +76,8 @@ pnpm candidates:evaluate -- --candidate <generated mock-worker candidate JSON> -
 The `docs_single_file_edit.fail.json` evaluation command is expected to exit `1` because it has a valid candidate shape but fails deterministic verification.
 
 The smoke script captures mock-worker candidate JSON with `pnpm --silent` so pnpm lifecycle text cannot contaminate the generated candidate file. It writes the captured JSON to a temporary file, validates it, evaluates it, and then removes the temp file. This path remains deterministic and model-free.
+
+The smoke script also runs `mock-pipeline:run` directly. The successful docs scenario must exit `0`; the refusal and invalid-schema scenarios must exit `1`, and those expected failures count as passing smoke checks because they verify structured failure behavior.
 
 ## Expected Exit Codes
 
@@ -106,7 +112,7 @@ In normal text mode, `pnpm benchmark:release-smoke` prints exactly one final sta
 SCINTILLA_BENCHMARK_PLUMBING_STATUS=BENCHMARK_PLUMBING_READY
 ```
 
-The status variable and `BENCHMARK_PLUMBING_READY` wording remain unchanged for compatibility, even though the smoke script now also covers Ariadne read-only context tooling, contract template discovery, and mock-worker generated-candidate validation and evaluation.
+The status variable and `BENCHMARK_PLUMBING_READY` wording remain unchanged for compatibility, even though the smoke script now also covers Ariadne read-only context tooling, contract template discovery, mock-worker generated-candidate validation/evaluation, and direct mock-pipeline CLI checks.
 
 On deterministic smoke failure, the final line is:
 
@@ -142,16 +148,16 @@ pnpm benchmark:release-smoke -- --json
 
 ## CI Workflow
 
-The `Benchmark Release Smoke` GitHub Actions workflow runs deterministic benchmark plumbing, Ariadne read-only context tooling, contract template discovery, and the mock-worker generated-candidate validation/evaluation chain. It installs dependencies, runs `pnpm benchmark:release-smoke`, asserts the stable `SCINTILLA_BENCHMARK_PLUMBING_STATUS=BENCHMARK_PLUMBING_READY` line, writes `benchmark-release-smoke.json`, and archives the smoke reports as the stable `benchmark-release-smoke` artifact.
+The `Benchmark Release Smoke` GitHub Actions workflow runs deterministic benchmark plumbing, Ariadne read-only context tooling, contract template discovery, the mock-worker generated-candidate validation/evaluation chain, and direct mock-pipeline CLI checks. It installs dependencies, runs `pnpm benchmark:release-smoke`, asserts the stable `SCINTILLA_BENCHMARK_PLUMBING_STATUS=BENCHMARK_PLUMBING_READY` line, writes `benchmark-release-smoke.json`, and archives the smoke reports as the stable `benchmark-release-smoke` artifact.
 
 The artifact includes both:
 
 - `benchmark-release-smoke.txt`
 - `benchmark-release-smoke.json`
 
-The archived reports cover deterministic benchmark plumbing, candidate examples and manifests, Ariadne read-only scan, packet, and context-packet template tooling, TaskContract template discovery, contract-mode Ariadne packet generation, mock-worker candidate generation, generated candidate validation, and generated candidate evaluation.
+The archived reports cover deterministic benchmark plumbing, candidate examples and manifests, Ariadne read-only scan, packet, and context-packet template tooling, TaskContract template discovery, contract-mode Ariadne packet generation, mock-worker candidate generation, generated candidate validation, generated candidate evaluation, and direct mock-pipeline pass/refusal/invalid-candidate checks.
 
-The workflow does not add real model calls, Ollama setup, provider secrets, model quality certification, orchestration, Aedis integration, benchmark generation, or real repository editing. Ariadne, contract, and mock-worker checks are deterministic read-only tooling checks only.
+The workflow does not add real model calls, Ollama setup, provider secrets, model quality certification, orchestration, Aedis integration, benchmark generation, or real repository editing. Ariadne, contract, mock-worker, and mock-pipeline checks are deterministic read-only tooling checks only.
 
 ## Manifest Consistency Checks
 

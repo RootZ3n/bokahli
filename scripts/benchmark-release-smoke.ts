@@ -233,6 +233,60 @@ export function getBenchmarkReleaseSmokeCommands(): readonly SmokeCommand[] {
         "--json"
       ],
       expectedExitCode: 0
+    },
+    {
+      id: "mock-pipeline-docs-pass",
+      command: "pnpm",
+      args: [
+        "mock-pipeline:run",
+        "--",
+        "--contract",
+        "examples/contracts/readme_patch_one_file.contract.json",
+        "--context-packet",
+        "examples/context-packets/readme_patch_one_file.packet.json",
+        "--scenario",
+        "valid_docs_single_file_edit",
+        "--benchmark",
+        "docs_single_file_edit",
+        "--json"
+      ],
+      expectedExitCode: 0
+    },
+    {
+      id: "mock-pipeline-refusal-expected",
+      command: "pnpm",
+      args: [
+        "mock-pipeline:run",
+        "--",
+        "--contract",
+        "examples/contracts/readme_patch_one_file.contract.json",
+        "--context-packet",
+        "examples/context-packets/readme_patch_one_file.packet.json",
+        "--scenario",
+        "refusal_uncertain",
+        "--benchmark",
+        "docs_single_file_edit",
+        "--json"
+      ],
+      expectedExitCode: 1
+    },
+    {
+      id: "mock-pipeline-invalid-schema-expected",
+      command: "pnpm",
+      args: [
+        "mock-pipeline:run",
+        "--",
+        "--contract",
+        "examples/contracts/readme_patch_one_file.contract.json",
+        "--context-packet",
+        "examples/context-packets/readme_patch_one_file.packet.json",
+        "--scenario",
+        "invalid_schema",
+        "--benchmark",
+        "docs_single_file_edit",
+        "--json"
+      ],
+      expectedExitCode: 1
     }
   ];
 }

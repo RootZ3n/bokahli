@@ -25,6 +25,7 @@ const ariadneCheckIds = [
 
 const contractCheckIds = ["contracts-list", "contracts-list-json", "contracts-list-readme", "ariadne-packet-readme-contract-json"];
 const mockWorkerCandidateCheckIds = ["mock-worker-candidate-only", "mock-worker-candidate-validate", "mock-worker-candidate-evaluate"];
+const mockPipelineCheckIds = ["mock-pipeline-docs-pass", "mock-pipeline-refusal-expected", "mock-pipeline-invalid-schema-expected"];
 
 const mockCandidateJson = JSON.stringify({
   benchmarkId: "docs_single_file_edit",
@@ -120,7 +121,7 @@ describe("benchmark release smoke script", () => {
     const result = await runBenchmarkReleaseSmoke(runnerWith());
 
     expect(commandIds).toEqual(expect.arrayContaining(ariadneCheckIds));
-    expect(commands).toHaveLength(21);
+    expect(commands).toHaveLength(24);
     expect(getSmokeCounts(result)).toEqual({
       total: expectedSmokeCheckCount(),
       passed: expectedSmokeCheckCount(),
@@ -150,6 +151,65 @@ describe("benchmark release smoke script", () => {
       ok: false
     });
     expect(formatSmokeTable(result)).toContain("SCINTILLA_BENCHMARK_PLUMBING_STATUS=NOT_READY");
+  });
+
+  it("successful mock-pipeline failure causes NOT_READY", async () => {
+    const result = await runBenchmarkReleaseSmoke(runnerWith({ "mock-pipeline-docs-pass": 1 }));
+
+    expect(result.ok).toBe(false);
+    expect(result.results.find((entry) => entry.id === "mock-pipeline-docs-pass")).toMatchObject({
+      expectedExitCode: 0,
+      actualExitCode: 1,
+      ok: false
+    });
+  });
+
+  it("mock-pipeline refusal scenario exit 1 counts as pass", async () => {
+    const result = await runBenchmarkReleaseSmoke(runnerWith({ "mock-pipeline-refusal-expected": 1 }));
+
+    expect(result.ok).toBe(true);
+    expect(result.results.find((entry) => entry.id === "mock-pipeline-refusal-expected")).toMatchObject({
+      expectedExitCode: 1,
+      actualExitCode: 1,
+      ok: true
+    });
+  });
+
+  it("mock-pipeline refusal scenario exit 0 or 2 causes NOT_READY", async () => {
+    for (const exitCode of [0, 2]) {
+      const result = await runBenchmarkReleaseSmoke(runnerWith({ "mock-pipeline-refusal-expected": exitCode }));
+
+      expect(result.ok).toBe(false);
+      expect(result.results.find((entry) => entry.id === "mock-pipeline-refusal-expected")).toMatchObject({
+        expectedExitCode: 1,
+        actualExitCode: exitCode,
+        ok: false
+      });
+    }
+  });
+
+  it("mock-pipeline invalid_schema scenario exit 1 counts as pass", async () => {
+    const result = await runBenchmarkReleaseSmoke(runnerWith({ "mock-pipeline-invalid-schema-expected": 1 }));
+
+    expect(result.ok).toBe(true);
+    expect(result.results.find((entry) => entry.id === "mock-pipeline-invalid-schema-expected")).toMatchObject({
+      expectedExitCode: 1,
+      actualExitCode: 1,
+      ok: true
+    });
+  });
+
+  it("mock-pipeline invalid_schema scenario exit 0 or 2 causes NOT_READY", async () => {
+    for (const exitCode of [0, 2]) {
+      const result = await runBenchmarkReleaseSmoke(runnerWith({ "mock-pipeline-invalid-schema-expected": exitCode }));
+
+      expect(result.ok).toBe(false);
+      expect(result.results.find((entry) => entry.id === "mock-pipeline-invalid-schema-expected")).toMatchObject({
+        expectedExitCode: 1,
+        actualExitCode: exitCode,
+        ok: false
+      });
+    }
   });
 
   it("successful mock-worker candidate-only path contributes to success", async () => {
@@ -282,6 +342,15 @@ describe("benchmark release smoke script", () => {
     expect(checkNames).toEqual(expect.arrayContaining(mockWorkerCandidateCheckIds));
   });
 
+  it("JSON report includes mock-pipeline checks", async () => {
+    const result = await runBenchmarkReleaseSmoke(runnerWith());
+    const json = toSmokeJsonReport(result);
+    const checkNames = json.checks.map((check) => check.name);
+
+    expect(json.status).toBe("BENCHMARK_PLUMBING_READY");
+    expect(checkNames).toEqual(expect.arrayContaining(mockPipelineCheckIds));
+  });
+
   it("context packet list checks are included", () => {
     const commands = getBenchmarkReleaseSmokeCommands();
 
@@ -306,11 +375,24 @@ describe("benchmark release smoke script", () => {
     );
   });
 
-  it("Ariadne contract packet check appears exactly once", () => {
+  it("mock-pipeline checks are included with expected exits", () => {
     const commands = getBenchmarkReleaseSmokeCommands();
 
-    expect(commands.filter((command) => command.id === "ariadne-packet-readme-contract-json")).toHaveLength(1);
-    expect(commands.filter((command) => command.args.includes("examples/contracts/readme_patch_one_file.contract.json"))).toHaveLength(1);
+    expect(commands).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "mock-pipeline-docs-pass", expectedExitCode: 0 }),
+        expect.objectContaining({ id: "mock-pipeline-refusal-expected", expectedExitCode: 1 }),
+        expect.objectContaining({ id: "mock-pipeline-invalid-schema-expected", expectedExitCode: 1 })
+      ])
+    );
+  });
+
+  it("Ariadne contract packet check appears exactly once", () => {
+    const commands = getBenchmarkReleaseSmokeCommands();
+    const ariadneContractCommands = commands.filter((command) => command.id === "ariadne-packet-readme-contract-json");
+
+    expect(ariadneContractCommands).toHaveLength(1);
+    expect(ariadneContractCommands[0]?.args).toContain("examples/contracts/readme_patch_one_file.contract.json");
   });
 
   it("mock-worker candidate-only command uses pnpm --silent for captured JSON", () => {
