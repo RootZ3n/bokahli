@@ -118,8 +118,61 @@ export function resolveTokenizerIdentity(inputs: TokenizerInputs): TokenizerIden
     );
   }
 
-  const bound = proof !== null && proof.matches && proof.backendInstanceId !== null &&
-    instanceId !== null && proof.backendInstanceId === instanceId;
+  const instanceBound =
+    proof !== null &&
+    proof.backendInstanceId !== null &&
+    instanceId !== null &&
+    proof.backendInstanceId === instanceId;
+
+  // The file-side identity, bound to an attested artifact. Necessary and, on
+  // its own, worth nothing: every load-time override in the audit satisfies it.
+  const metadataBound =
+    inputs.artifactAttested &&
+    t !== null &&
+    t.metadataDigest !== null &&
+    t.family !== null &&
+    t.pretokenizer !== null;
+
+  const canary = proof?.canary ?? null;
+  // A canary result taken against another instance describes another process.
+  // Same rule as the sampled probe, applied to the thing that carries the
+  // stronger claim.
+  const canaryInstanceBound =
+    canary !== null &&
+    canary.verifiedBackendInstanceId !== null &&
+    instanceId !== null &&
+    canary.verifiedBackendInstanceId === instanceId;
+  const decodeCanaryVerified = canary !== null && canary.decodeCanaryVerified && canaryInstanceBound;
+  const encodeCanaryVerified = canary !== null && canary.encodeCanaryVerified && canaryInstanceBound;
+
+  // The encode direction. Everything before it — including the sampled decode
+  // probe f270ee9 called the binding — reads the token table, and the token
+  // table survives every override that changes how text is split.
+  if (canary === null) {
+    reasons.push(
+      'no tokenizer canary result: the runtime was never asked to encode anything, ' +
+        'so a changed pre-tokenizer, merge table or added-token rule would be invisible ' +
+        'while every decode sample still passed',
+    );
+  } else {
+    if (canary.reasons.length > 0) reasons.push(...canary.reasons);
+    if (!canaryInstanceBound) {
+      reasons.push(
+        'tokenizer canary was verified against a different backend instance; ' +
+          'a verification describes one process and does not survive a restart',
+      );
+    }
+    if (!encodeCanaryVerified && canary.reasons.length === 0) {
+      reasons.push('tokenizer encode canary did not pass');
+    }
+  }
+
+  const bound =
+    proof !== null &&
+    proof.matches &&
+    instanceBound &&
+    decodeCanaryVerified &&
+    encodeCanaryVerified;
 
   return {
     provenance: 'observed',
@@ -130,13 +183,21 @@ export function resolveTokenizerIdentity(inputs: TokenizerInputs): TokenizerIden
     runtimeVocabSize: inputs.runtimeVocabSize,
     vocabSizeMatch: vocabMatch,
     runtimeProof: proof,
-    // Declared in the artifact and reported; never confirmed in the runtime.
-    // Confirming it would require a second BPE implementation here, which is a
-    // second thing that can be wrong.
-    pretokenizerVerified: false,
+    // Confirmed behaviourally, over the canary corpus: a changed pre-tokenizer
+    // changes where text splits, and the corpus is chosen so that it does.
+    // Still not a proof of equivalence — see the canary's `coverageNote`.
+    pretokenizerVerified: encodeCanaryVerified,
+    metadataBound,
+    decodeCanaryVerified,
+    encodeCanaryVerified,
+    canarySuiteId: canary?.canarySuiteId ?? null,
+    canarySuiteHash: canary?.canarySuiteHash ?? null,
+    verifiedBackendInstanceId: canary?.verifiedBackendInstanceId ?? null,
+    verifiedAt: canary?.verifiedAt ?? null,
     metadataDigest: (t?.metadataDigest ?? null) as ArtifactDigest | null,
     // Derived, not asserted. llama.cpp returning integer usage fields says a
-    // count happened; it says nothing about which vocabulary produced it.
+    // count happened; it says nothing about which tokenizer produced it, and a
+    // decode-only check does not answer that either.
     tokenizedBy: bound ? 'runtime' : 'unknown',
     runtimeBuild: inputs.runtimeBuild,
     unprovenReasons: reasons,
@@ -149,13 +210,21 @@ export function resolveTokenizerIdentity(inputs: TokenizerInputs): TokenizerIden
  * `vocabSizeMatch` is deliberately absent: it is checked above, where a
  * mismatch adds a refusal reason, but agreement is not listed here because
  * agreement is not evidence. Two tokenizers can have the same vocabulary size.
+ *
+ * `encodeCanaryVerified` is listed separately from `decodeCanaryVerified` and
+ * both are required. They are not two ways of saying the same thing: a runtime
+ * whose token table is intact and whose merges were overridden passes the
+ * second and fails the first, and it is the first that governs the counts.
  */
 export function tokenizerFullyProven(t: TokenizerIdentity): boolean {
   return (
     t.unprovenReasons.length === 0 &&
+    t.metadataBound &&
     t.metadataDigest !== null &&
     t.family !== null &&
     t.pretokenizer !== null &&
+    t.decodeCanaryVerified &&
+    t.encodeCanaryVerified &&
     t.tokenizedBy === 'runtime' &&
     t.runtimeProof !== null &&
     t.runtimeProof.matches

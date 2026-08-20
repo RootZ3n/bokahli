@@ -31,6 +31,7 @@ import type { FactsSource } from './facts.js';
 import type { QualificationGate } from './qualification.js';
 import { route, type RouteContext } from './router.js';
 import { estimateTokens, Telemetry } from './telemetry.js';
+import { attemptInvalidDetail, evaluateAttemptLifetime } from './lifetime.js';
 
 export interface AppDeps {
   readonly config: BokahliConfig;
@@ -319,6 +320,11 @@ async function handleChat(
     return finishNonRouted(deps, res, requestId, receivedAt, t0, spec, cap, 0, gpuState.snapshot, dialect);
   }
 
+  // When the request became this backend's problem. Everything about whether
+  // its evidence survived is measured from here, not from receipt: queue time
+  // is not time spent on stale evidence, it is time spent before any was used.
+  const admittedAt = new Date().toISOString();
+
   try {
     const ctx: RouteContext = {
       catalog: deps.catalog,
@@ -364,6 +370,57 @@ async function handleChat(
 
     const artifact = decision.artifact;
     const served: ServedIdentity = outcome.selected;
+
+    // Refuse stale evidence before spending a GPU-minute on it. An attestation
+    // that had already lapsed at admission cannot be repaired by anything the
+    // request does afterwards, and executing first would mean discarding a
+    // completed generation for a fact that was knowable up front.
+    const attestation = served.qualificationFacts.attestation;
+    const instanceAtAdmission = served.qualificationFacts.backendInstance.instanceId;
+    const expiresMs = Date.parse(attestation.expiresAt);
+    // Only where something is actually being claimed.
+    //
+    // An unattested response already says, in every field a caller reads, that
+    // the served identity was not proven: `attested: false`, completeness
+    // `unattested`, tokenizer unproven, and no export downstream. There is no
+    // expired attestation being *used*, because there is no attestation. Gating
+    // it anyway would turn a degraded provenance probe into a total outage —
+    // an evidence feature taking the service down is how evidence features get
+    // switched off.
+    // `unattested` is the state where no attestation exists at all — the facts
+    // probe could not reach the backend. There is nothing stale to refuse, and
+    // in a healthy deployment the two conditions coincide: the real provider
+    // derives completeness from the same attested flag.
+    const claimsAttestation = served.attested && attestation.completeness !== 'unattested';
+    if (claimsAttestation && (!Number.isFinite(expiresMs) || Date.parse(admittedAt) > expiresMs)) {
+      return finishNonRouted(
+        deps, res, requestId, receivedAt, t0, spec,
+        {
+          kind: 'ESCALATE',
+          mode: spec.mode,
+          reason: 'ATTESTATION_STALE',
+          detail:
+            `the attestation for ${served.modelId} was observed at ${attestation.observedAt} ` +
+            `and expired at ${attestation.expiresAt}; this request was admitted at ` +
+            `${admittedAt}. Serving it would attach evidence to a completion that the ` +
+            'evidence no longer describes.',
+          unmet: [
+            {
+              requirement: 'attestation.freshAtAdmission',
+              required: 'true',
+              actual: 'false',
+            },
+          ],
+          considered: [],
+          authorityNote:
+            'Bokahli emits a typed escalation and stops. Re-attestation happens on the ' +
+            'next request; nothing about this outcome is a statement about the model.',
+          retryableLocal: true,
+        },
+        decision.routeMs, gpuState.snapshot, dialect,
+      );
+    }
+
     const ac = new AbortController();
     // Abort the upstream generation only on a genuine client disconnect.
     //
@@ -378,14 +435,16 @@ async function handleChat(
 
     if (stream) {
       await streamChat(deps, res, {
-        requestId, receivedAt, t0, admission, spec, outcome, served, artifact,
+        requestId, receivedAt, admittedAt, instanceAtAdmission,
+        t0, admission, spec, outcome, served, artifact,
         messages, maxTokens, temperature, topP, topK, seed, requestedSampler,
         routeMs: decision.routeMs,
         gpu: gpuState.snapshot, dialect, signal: ac.signal,
       });
     } else {
       await bufferChat(deps, res, {
-        requestId, receivedAt, t0, admission, spec, outcome, served, artifact,
+        requestId, receivedAt, admittedAt, instanceAtAdmission,
+        t0, admission, spec, outcome, served, artifact,
         messages, maxTokens, temperature, topP, topK, seed, requestedSampler,
         routeMs: decision.routeMs,
         gpu: gpuState.snapshot, dialect, signal: ac.signal,
@@ -399,6 +458,10 @@ async function handleChat(
 interface ExecArgs {
   requestId: string;
   receivedAt: string;
+  /** When the queue admitted this request; the start of its evidence window. */
+  admittedAt: string;
+  /** The backend process the routing decision and its attestation describe. */
+  instanceAtAdmission: string | null;
   t0: number;
   admission: { waitMs: number; depthAtAdmission: number };
   spec: RouteSpec;
@@ -525,6 +588,45 @@ async function streamChat(deps: AppDeps, res: ServerResponse, a: ExecArgs): Prom
     firstTokenAt, promptTokens, completionTokens, promptTps, completionTps,
   });
 
+  // Headers and deltas are already on the wire, so the terminal event carries
+  // the verdict. A client that consumed the text learns, in the same stream,
+  // that it must not be treated as an attested completion.
+  if (
+    a.served.attested &&
+    a.served.qualificationFacts.attestation.completeness !== 'unattested' &&
+    telemetry.attemptLifetime?.verdict === 'infrastructure-invalid'
+  ) {
+    const escalation = attemptNotAttributableEscalation(a.spec.mode, telemetry);
+    deps.telemetry.log('warn', 'attempt.notAttributable', {
+      requestId: a.requestId,
+      modelId: a.served.modelId,
+      streamedChars: text.length,
+      reasons: telemetry.attemptLifetime.reasons.join('; '),
+    });
+    if (a.dialect === 'openai') {
+      sseRaw(res, {
+        id: a.requestId,
+        object: 'chat.completion.chunk',
+        model: a.served.modelId,
+        choices: [{ index: 0, delta: {}, finish_reason: 'attempt_not_attributable' }],
+        bokahli: { outcome: 'ESCALATE', route: escalation, telemetry },
+      });
+      res.write('data: [DONE]\n\n');
+    } else {
+      sse(res, 'bokahli.done', {
+        requestId: a.requestId,
+        outcome: 'ESCALATE',
+        route: escalation,
+        result: null,
+        streamedTextNotAttributable: true,
+        telemetry,
+      });
+    }
+    res.end();
+    deps.telemetry.record(telemetry, 'ESCALATE');
+    return;
+  }
+
   if (a.dialect === 'openai') {
     sseRaw(res, {
       id: a.requestId,
@@ -602,6 +704,34 @@ async function bufferChat(deps: AppDeps, res: ServerResponse, a: ExecArgs): Prom
   const telemetry = await buildTelemetry(deps, a, {
     firstTokenAt, promptTokens, completionTokens, promptTps, completionTps,
   });
+
+  // The completion exists. Whether it can be attributed is a separate question,
+  // and it is answered before the text is handed over rather than annotated
+  // beside it — an unattributable answer that ships with a warning field is an
+  // answer that will be read without the field.
+  //
+  // The verdict is computed and published for every routed request; it is
+  // *enforced* where the response would otherwise present an attested identity.
+  // An unattested response claims nothing to begin with.
+  if (
+    a.served.attested &&
+    a.served.qualificationFacts.attestation.completeness !== 'unattested' &&
+    telemetry.attemptLifetime?.verdict === 'infrastructure-invalid'
+  ) {
+    deps.telemetry.log('warn', 'attempt.notAttributable', {
+      requestId: a.requestId,
+      modelId: a.served.modelId,
+      discardedChars: text.length,
+      reasons: telemetry.attemptLifetime.reasons.join('; '),
+    });
+    deps.telemetry.record(telemetry, 'ESCALATE');
+    return finishNonRouted(
+      deps, res, a.requestId, a.receivedAt, a.t0, a.spec,
+      attemptNotAttributableEscalation(a.spec.mode, telemetry),
+      a.routeMs, a.gpu, a.dialect,
+    );
+  }
+
   deps.telemetry.record(telemetry, 'ROUTED');
 
   if (a.dialect === 'openai') {
@@ -671,8 +801,11 @@ async function buildTelemetry(
   // The instance the request was routed against. If the backend restarted since
   // then, the slot we just read belongs to a different process and is dropped
   // rather than reported at reduced confidence.
-  const routedInstance = a.served.qualificationFacts.backendInstance.instanceId;
-  const nowInstance = (await deps.facts.currentInstanceId?.()) ?? routedInstance;
+  const routedInstance = a.instanceAtAdmission;
+  // Re-read, and do not fall back to the admission value. A fallback would make
+  // "we could not tell" indistinguishable from "it did not change", which is
+  // the one distinction the completion check exists to make.
+  const nowInstance = (await deps.facts.currentInstanceId?.()) ?? null;
   const sampler = resolveSamplerFacts({
     requested: a.requestedSampler,
     // What actually went on the wire: the requested value where there was one,
@@ -702,10 +835,20 @@ async function buildTelemetry(
   });
   const served = a.served.servedContextTokens;
   const used = (m.promptTokens ?? 0) + (m.completionTokens ?? 0);
+  const completedAt = new Date().toISOString();
+  const attestation = a.served.qualificationFacts.attestation;
+  const attemptLifetime = evaluateAttemptLifetime({
+    admittedAt: a.admittedAt,
+    completedAt,
+    attestationObservedAt: attestation.observedAt,
+    attestationExpiresAt: attestation.expiresAt,
+    instanceAtAdmission: routedInstance,
+    instanceAtCompletion: nowInstance,
+  });
   return {
     requestId: a.requestId,
     receivedAt: a.receivedAt,
-    completedAt: new Date().toISOString(),
+    completedAt,
     queueWaitMs: a.admission.waitMs,
     queueDepthAtAdmission: a.admission.depthAtAdmission,
     routeMs: a.routeMs,
@@ -721,6 +864,42 @@ async function buildTelemetry(
     gpu: a.gpu,
     tokenCounts,
     sampler,
+    attemptLifetime,
+  };
+}
+
+/**
+ * The escalation for a completion nobody can stand behind.
+ *
+ * Distinct from `runtimeUnhealthyEscalation`, which says the runtime stopped
+ * answering. Here it answered — and a different process did, so the answer is
+ * unattributable rather than absent. Collapsing the two would tell an operator
+ * to investigate an outage that did not happen, and would let a qualification
+ * campaign score a restart as a model failure.
+ */
+function attemptNotAttributableEscalation(
+  mode: RouteSpec['mode'],
+  telemetry: RequestTelemetry,
+): Escalation {
+  const l = telemetry.attemptLifetime;
+  return {
+    kind: 'ESCALATE',
+    mode,
+    reason: 'ATTEMPT_NOT_ATTRIBUTABLE',
+    detail: l === null ? 'this attempt has no lifetime record' : attemptInvalidDetail(l),
+    unmet: [
+      {
+        requirement: 'backendInstance.continuousAcrossRequest',
+        required: 'true',
+        actual: String(l?.instanceContinuous ?? false),
+      },
+    ],
+    considered: [],
+    authorityNote:
+      'Bokahli emits a typed escalation and stops. This is an infrastructure outcome: ' +
+      'a qualification campaign must discard the attempt rather than score it against ' +
+      'the model.',
+    retryableLocal: true,
   };
 }
 
@@ -794,6 +973,10 @@ function finishNonRouted(
       seedSupport: 'not_requested',
       deterministicOutputGuaranteed: false,
     },
+    // No backend was reached, so there is no attempt whose lifetime could be
+    // bounded. Null says that; a synthetic 'valid' would claim an attestation
+    // survived a request that never had one.
+    attemptLifetime: null,
     servedContextTokens: null,
     contextUtilisation: null,
     runtimeBuild: null,

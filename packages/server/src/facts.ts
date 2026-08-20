@@ -33,6 +33,7 @@ import type {
   SamplerConfig,
   TemplateFacts,
   RuntimeTokenizerProof,
+  TokenizerCanarySuite,
   TokenizerIdentity,
 } from '@bokahli/contracts';
 import {
@@ -81,6 +82,22 @@ export interface FactsProviderOptions {
   readonly resolveBackendPids: () => Promise<readonly number[]>;
   /** The artifact's own token table, for the runtime vocabulary probe. */
   readonly artifactTokens: (a: InternalArtifact) => Promise<readonly string[] | null>;
+  /**
+   * `tokenizer.ggml.token_type`, so the probe can tell a vocabulary entry from
+   * the UNUSED padding that fills a vocabulary out to a round size. Without it
+   * the sampled probe reports a mismatch against a healthy backend, because the
+   * runtime renders padding as the empty string.
+   */
+  readonly artifactTokenTypes: (a: InternalArtifact) => Promise<Int32Array | null>;
+  /**
+   * The pinned two-sided canary for this artifact.
+   *
+   * Supplied, never produced: nothing at request time may generate an
+   * expectation. Loaded and validated once at startup, so a malformed suite is
+   * a startup failure rather than a permanent silent `encodeCanaryVerified:
+   * false` that looks like a tokenizer problem.
+   */
+  readonly canarySuite: (a: InternalArtifact) => TokenizerCanarySuite | null;
   readonly now?: () => Date;
 }
 
@@ -350,10 +367,14 @@ export class QualificationFactsProvider implements FactsSource {
       proof = await probeRuntimeTokenizer(
         {
           artifactTokens: await this.#opts.artifactTokens(artifact),
+          artifactTokenTypes: await this.#opts.artifactTokenTypes(artifact),
           backendInstanceId: instance.instanceId,
+          canarySuite: this.#opts.canarySuite(artifact),
+          artifactDigest: artifact.digest,
+          tokenizerMetadataDigest: art.tokenizerMetadata?.metadataDigest ?? null,
         },
         {
-          tokenize: (text) => this.#opts.backend.tokenize(text),
+          tokenize: (text, o) => this.#opts.backend.tokenize(text, o),
           detokenize: (ids) => this.#opts.backend.detokenize(ids),
           now,
         },

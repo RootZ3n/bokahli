@@ -8,7 +8,7 @@
  * one. Bokahli does not fabricate scores, rankings, or qualification claims to
  * make that decision look richer than it is.
  */
-import type { SamplerFacts, TokenCountFacts } from './attestation.js';
+import type { AttemptLifetime, SamplerFacts, TokenCountFacts } from './attestation.js';
 import type {
   ArtifactDigest,
   CatalogEntry,
@@ -160,7 +160,26 @@ export type EscalateReason =
    * an attested runtime. It is distinct from CAPACITY_UNAVAILABLE/
    * RUNTIME_UNAVAILABLE, which means the runtime is present but busy.
    */
-  | 'RUNTIME_UNHEALTHY';
+  | 'RUNTIME_UNHEALTHY'
+  /**
+   * The evidence behind the served identity had already lapsed at admission.
+   *
+   * Refused before any work starts rather than after: executing first and
+   * discovering afterwards that the request was never validly admitted spends a
+   * GPU-minute to produce something that has to be thrown away. The runtime is
+   * healthy; a retry re-attests and proceeds.
+   */
+  | 'ATTESTATION_STALE'
+  /**
+   * The request completed and the completion cannot be attributed.
+   *
+   * Reserved for the backend instance changing between admission and
+   * completion. The output may be perfectly good; it came from a process that
+   * was never attested for this request, so it is not returned. A qualification
+   * campaign must drop such an attempt rather than score it against the model —
+   * the failure is infrastructure, not capability.
+   */
+  | 'ATTEMPT_NOT_ATTRIBUTABLE';
 
 export interface Escalation {
   readonly kind: 'ESCALATE';
@@ -308,6 +327,14 @@ export interface RequestTelemetry {
   readonly tokenCounts: TokenCountFacts;
   /** Phase B2. Requested, sent, and runtime-confirmed sampler settings. */
   readonly sampler: SamplerFacts;
+  /**
+   * Phase B2. Whether the evidence behind this attempt survived the attempt.
+   *
+   * Null on paths that never reached a backend — there is no attempt to bound.
+   * A consumer scoring model quality must drop anything whose verdict is
+   * `infrastructure-invalid`: the output exists, and it is not attributable.
+   */
+  readonly attemptLifetime: AttemptLifetime | null;
 }
 
 export interface GpuSnapshot {

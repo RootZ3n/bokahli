@@ -243,8 +243,24 @@ export class LlamaBackend {
    * the only channel through which Bokahli can observe the vocabulary the
    * process actually loaded, as opposed to the one its artifact declares.
    */
-  async tokenize(text: string): Promise<readonly number[]> {
-    const r = await this.#post('/tokenize', { content: text, with_pieces: false });
+  async tokenize(
+    text: string,
+    opts: { readonly addSpecial: boolean; readonly parseSpecial: boolean } = {
+      addSpecial: false,
+      parseSpecial: true,
+    },
+  ): Promise<readonly number[]> {
+    // Both settings are sent explicitly. llama-server defaults `add_special`
+    // to false and `parse_special` to true, and a canary generated under one
+    // pair and verified under another fails for a reason that has nothing to do
+    // with tokenizer identity — which is the kind of false alarm that gets a
+    // check switched off.
+    const r = await this.#post('/tokenize', {
+      content: text,
+      with_pieces: false,
+      add_special: opts.addSpecial,
+      parse_special: opts.parseSpecial,
+    });
     const body = (await r.json()) as { tokens?: unknown };
     return Array.isArray(body.tokens) ? (body.tokens as number[]).filter(Number.isInteger) : [];
   }

@@ -43,16 +43,27 @@ const PROVEN = {
   runtimeVocabSize: 248320,
   runtimeBuild: 'b10505-ee4c505a4',
   artifactAttested: true,
-  // The behavioural binding added by the audit remediation. Without it the
-  // proof rests on file bytes plus a size comparison, which a load-time
-  // metadata override defeats.
+  // The behavioural binding, both directions. The decode half alone reads the
+  // token table, which a load-time override of merges or the pre-tokenizer
+  // leaves untouched while changing every count — so the encode canary is the
+  // half that actually unblocks an export.
   backendInstanceId: 'instance-1',
   runtimeTokenizerProof: {
-    method: 'runtime-vocab-probe', matches: true,
+    method: 'runtime-canary-probe', matches: true,
     samplesChecked: 24, samplesMatched: 24,
     segmentationDigest: `sha256:${'7c'.repeat(32)}`,
     backendInstanceId: 'instance-1',
     observedAt: '2026-08-20T12:00:00.000Z', detail: null,
+    canary: {
+      schemaVersion: 'bokahli.tokenizer-canary.v1',
+      canarySuiteId: 'qwen35-broad.v1', canarySuiteHash: `sha256:${'3a'.repeat(32)}`,
+      decodeCanaryVerified: true, encodeCanaryVerified: true,
+      encodeChecked: 40, encodeMatched: 40, decodeChecked: 54, decodeMatched: 54,
+      failedCaseIds: [], encodeReferenceMethod: 'llama-tokenize-vocab-only',
+      decodeReferenceMethod: 'gguf-token-table',
+      verifiedBackendInstanceId: 'instance-1', verifiedAt: '2026-08-20T12:00:00.000Z',
+      reasons: [], coverageNote: 'behavioural canary coverage, not proof of equivalence',
+    },
   },
   now: NOW,
 };
@@ -213,6 +224,63 @@ test('a disagreeing probe does not permit export', async (t) => {
     {
       ...PROVEN,
       runtimeTokenizerProof: { ...PROVEN.runtimeTokenizerProof, matches: false, samplesMatched: 21 },
+    },
+    'runtime_reported_unknown_tokenizer',
+  );
+  assert.equal(counts.source, 'runtime_reported_unknown_tokenizer');
+  assert.equal(result.ok, false);
+});
+
+test('removing the encode canary alone restores the pilot refusal', async (t) => {
+  if (!AVAILABLE) return t.skip('Luak is not checked out at ~/repos/luak');
+  // Everything else is intact and passing: the artifact is attested, the
+  // metadata digest is present, the vocabulary sizes agree, the sampled probe
+  // matches, and every decode case matches. Only the direction that produces
+  // the counts is unverified — which is exactly the state f270ee9 shipped in,
+  // and it must not export.
+  const { counts, result } = await runExport(
+    {
+      ...PROVEN,
+      runtimeTokenizerProof: {
+        ...PROVEN.runtimeTokenizerProof,
+        canary: { ...PROVEN.runtimeTokenizerProof.canary, encodeCanaryVerified: false,
+          encodeMatched: 39, failedCaseIds: ['merge-run'],
+          reasons: ['runtime encoding disagrees with the pinned canary (39/40 cases matched)'] },
+      },
+    },
+    'runtime_reported_unknown_tokenizer',
+  );
+  assert.equal(counts.source, 'runtime_reported_unknown_tokenizer');
+  assert.equal(result.ok, false);
+  assert.deepEqual(codes(result), ['CONTEXT_TIER_NOT_MEASURED', 'TOKEN_COUNTS_NOT_MEASURED']);
+});
+
+test('a decode-only proof does not export', async (t) => {
+  if (!AVAILABLE) return t.skip('Luak is not checked out at ~/repos/luak');
+  // The shape f270ee9 would have produced: no canary at all, a matching
+  // sampled decode probe, and counts presented as proven.
+  const { counts, result } = await runExport(
+    {
+      ...PROVEN,
+      runtimeTokenizerProof: {
+        ...PROVEN.runtimeTokenizerProof, method: 'runtime-vocab-probe', canary: null,
+      },
+    },
+    'runtime_reported_unknown_tokenizer',
+  );
+  assert.equal(counts.source, 'runtime_reported_unknown_tokenizer');
+  assert.equal(result.ok, false);
+});
+
+test('a canary verified against another backend instance does not export', async (t) => {
+  if (!AVAILABLE) return t.skip('Luak is not checked out at ~/repos/luak');
+  const { counts, result } = await runExport(
+    {
+      ...PROVEN,
+      runtimeTokenizerProof: {
+        ...PROVEN.runtimeTokenizerProof,
+        canary: { ...PROVEN.runtimeTokenizerProof.canary, verifiedBackendInstanceId: 'instance-0' },
+      },
     },
     'runtime_reported_unknown_tokenizer',
   );

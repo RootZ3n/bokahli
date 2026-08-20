@@ -44,9 +44,14 @@ field that cannot say which it is will eventually be read as the stronger one.
 | `runtimeVocabSize` | `/v1/models` → `meta.n_vocab` | runtime-reported | yes, unless the model changes |
 | `vocabSizeMatch` | the two compared | observed | yes |
 | `metadataDigest` | sha256 over family, pre-tokenizer, token list, merge list, token types, special ids | observed | yes |
-| `runtimeProof` | `/detokenize` of sampled ids vs the artifact's token table | observed | **no — one process** |
+| `metadataBound` | the four above, on an attested artifact | observed | yes |
+| `decodeCanaryVerified` | pinned `id → bytes` cases, run against the runtime | observed | **no — one process** |
+| `encodeCanaryVerified` | pinned `bytes → ids` cases, run against the runtime | observed | **no — one process** |
+| `canarySuiteId` / `canarySuiteHash` | the pinned suite and a hash of its contents | declared | yes |
+| `verifiedBackendInstanceId` / `verifiedAt` | which process the canary ran against, and when | observed | no |
+| `runtimeProof` | the probe record: sampled decode plus the canary result | observed | no |
 | `segmentationDigest` | `/tokenize` of a fixed probe | observed | no |
-| `tokenizedBy` | derived from `runtimeProof`, never asserted | observed | no |
+| `tokenizedBy` | derived from both canary directions, never asserted | observed | no |
 
 File facts are read once per artifact digest and cached against it, because the
 digest *is* the content: a cache hit means the bytes are the same bytes. The
@@ -59,36 +64,100 @@ describes one process reading one vocabulary and survives neither changing.
 2. `metadataDigest`, `family` and `pretokenizer` are all present — a family
    name is not an identity, and without a named pre-tokenizer the segmentation
    rule is unnamed;
-3. a **runtime vocabulary probe** matched, and
-4. that probe was taken against *this* backend instance.
+3. the sampled **decode** probe matched;
+4. every pinned **decode** canary case matched;
+5. every pinned **encode** canary case matched; and
+6. all of it was observed against *this* backend instance.
 
 `vocabSizeMatch` is **supporting evidence only**. A mismatch refuses; agreement
 proves nothing, because two different tokenizers can have identical vocabulary
-sizes — and that is precisely what a substitution looks like. The first version
-of this phase used size equality as the binding, and the audit broke it: llama.cpp's
-`--override-kv` replaces GGUF metadata at load time without touching the file, so
-the digest matches, the path matches, attestation passes, the size is unchanged,
-and the tokenizer splitting text is not the one described.
+sizes — and that is precisely what a substitution looks like.
 
-**The runtime vocabulary probe** (`runtime-vocab-probe`) asks the running server
-to `/detokenize` 24 deterministically sampled ids — anchored at 0 and at
-`vocabSize - 1`, because a substituted vocabulary is likeliest to differ in the
-added-token region — and compares each result byte for byte against the
-artifact's own token table. One id at a time, so an offsetting pair of
-differences cannot cancel. It also records `segmentationDigest`, a hash of the
-ids the runtime produces for a fixed probe string.
+#### Why decoding was not enough
 
-Two limits, stated rather than papered over. The probe binds the **vocabulary**,
-not the pre-tokenizer: confirming that would need a byte-level BPE
-implementation here, and a second tokenizer implementation is a second thing
-that can be wrong. `pretokenizerVerified` is therefore always `false`, and
-`segmentationDigest` gives comparability instead of proof — any change in how
-this deployment segments text shows up as an identity change between runs.
-Second, a probe describes one process: it carries a `backendInstanceId` and a
-probe from a previous instance proves nothing about the current one.
+The previous version of this phase bound the tokenizer by asking the runtime to
+`/detokenize` sampled ids and comparing the bytes against the artifact's token
+table. That is a real check, and it reads the token **table**. The table is not
+what turns text into ids. Merges decide how pieces combine, the pre-tokenizer
+decides where splitting starts, and added-token handling decides whether
+`<|im_end|>` is one token or six.
 
-`tokenizedBy` is derived from the probe, never asserted. It was a hardcoded
-literal before the audit, which made the condition that checked it unfalsifiable.
+`--override-kv` reaches all three at load time without touching a byte of the
+file. Under any of those substitutions the digest matches, the path matches,
+attestation passes, the vocabulary size is unchanged, **every decode sample
+still passes** — and every `usage.prompt_tokens` comes from a tokenizer nobody
+described. Decode-only verification is therefore not tokenizer identity, and
+`decodeCanaryVerified` and `encodeCanaryVerified` are separate booleans so the
+weaker cannot be spent as the stronger.
+
+#### The canary
+
+A canary is a file, pinned in the catalog next to the artifact it describes, and
+generated at preparation time by `scripts/generate-tokenizer-canary.mjs`.
+Nothing at request time can produce or refresh one: a system that can generate
+its own expectations can generate the ones that pass.
+
+**Expected-value authority.** Neither direction is answered by the backend under
+test, because expectations produced by the thing being verified and compared
+back to it pass whatever that thing does — including the substitution.
+
+| Direction | Authority | Why it is independent |
+|---|---|---|
+| `bytes → ids` | `llama-tokenize` with `vocab_only` | a separate short-lived process, spawned with `CUDA_VISIBLE_DEVICES` emptied; no server contact, no tensor data, no GPU |
+| `id → bytes` | the artifact's own `tokenizer.ggml.tokens` | the file whose digest Bokahli already verified |
+
+Each suite is bound to the exact artifact digest, the tokenizer metadata digest,
+the encode settings it was produced under, a schema version, a generator
+identity (`basename:sha256` over `llama-tokenize` and the objects that implement
+tokenization, plus the build string), and a `payloadHash` over every case. A
+suite generated for another artifact, or edited afterwards, is refused before
+any probe runs. A suite whose reference method is a live backend can never reach
+`encodeCanaryVerified`, and one whose reference names the instance being
+verified is refused outright.
+
+**Corpus.** Forty encode cases and fifty-four decode cases for the installed
+artifact, weighted toward boundaries rather than ordinary words — a substitution
+rarely changes how `hello` splits and routinely changes what happens at the edge
+of a whitespace run. Covered: ASCII words and punctuation; leading, trailing and
+repeated whitespace; newlines, tabs and CRLF; source-code syntax; compact and
+indented JSON; combining marks against their precomposed forms; NBSP, thin and
+ideographic spaces; ZWJ and ZWNJ; emoji including a family ZWJ sequence and a
+skin-tone modifier; CJK, Cyrillic, Arabic and Devanagari; digit grouping,
+leading zeros, decimals and exponents; merge-sensitive repeated substrings; real
+chat special tokens, a full ChatML turn, a special-token lookalike that is *not*
+in the vocabulary, and a truncated one; and the added-token region of the
+vocabulary. No secrets, no user prompts, no machine paths.
+
+**No partial credit.** Every encode case must match. Twenty-nine passes and one
+failure describes a runtime that segments text differently from the one the
+expectations came from; the failure is the finding.
+
+**The claim is bounded, and the bound travels with it.** A finite corpus is
+behavioural evidence, not a proof of tokenizer equivalence — proving that would
+mean enumerating an infinite input space or reimplementing byte-level BPE here,
+and a second tokenizer implementation is a second thing that can be wrong. Every
+result carries a `coverageNote` saying so. `pretokenizerVerified` is true when
+the encode canary passes, which means *confirmed over this corpus*, not *proved
+identical*.
+
+**One process.** A canary result carries `verifiedBackendInstanceId`, and one
+from a previous instance proves nothing about the current one.
+
+**Two exclusions**, both found by running the canary against the live backend
+before shipping it, and both cases where a naive canary would fail a healthy
+deployment rather than catch a substitution:
+
+- **UNUSED vocabulary entries** — the 243 `[PAD…]` slots that fill this
+  vocabulary out to 248,320. llama.cpp renders them as the empty string, so
+  pinning their stored text produces a case that always fails. Excluded by
+  token type, and the sampled probe skips them too.
+- **Byte fragments that are not valid UTF-8 alone.** Both sides render them as
+  U+FFFD and therefore agree — a match produced by two independent failures,
+  which is worse than a mismatch. Excluded and counted.
+
+Multi-id detokenization is deliberately not canaried: `common_detokenize`
+applies spacing rules on top of the vocabulary, and an expectation derived from
+the token table could fail on a correct deployment.
 
 Neither `/tokenize` nor `/detokenize` runs the model: no decode, no slot, no GPU
 work.
@@ -345,6 +414,63 @@ names each absent component.
 A backend restart changes `backendInstanceId`, so it invalidates the attestation
 by construction rather than by anyone remembering to invalidate it.
 
+### Attempt lifetime — `telemetry.attemptLifetime`
+
+An attestation is a photograph. Giving it a 60-second expiry made staleness
+visible and left two questions unanswered: what happens when a request admitted
+under valid evidence runs *past* the expiry, and what happens when the backend
+restarts while it runs.
+
+Neither is hypothetical here. A 32768-tier prefill measures tens of seconds and
+65536 measured 88.5 s worst case, so requests that outlive a 60-second
+attestation are ordinary — and they are the longest, most context-heavy, most
+expensive attempts in any campaign. Two wrong answers were available: refuse
+anything that crosses the expiry, which discards correct answers because a clock
+advanced and loses attribution selectively for exactly the attempts that matter
+most; or ignore the expiry at completion, which accepts an answer from a process
+that is no longer the process that was attested.
+
+**Continuity resolves it.** Elapsed time is not the question; identity is. Each
+attempt is bound to four facts:
+
+| Fact | When |
+|---|---|
+| `attestationValidAtAdmission` | the evidence had not already lapsed when the queue admitted the request |
+| `instanceAtAdmission` | the backend process the routing decision describes |
+| `instanceAtCompletion` | the backend process observed when the generation terminated |
+| `instanceContinuous` | those two are known and identical |
+
+A backend that never restarted is still the backend that was attested, however
+long it took, and `revalidation: instance-continuity` records that the evidence
+was carried across the expiry by identity rather than by a fresh probe. A
+backend that restarted is a different process — fresh context, unattested load,
+possibly different placement — and the attempt is `infrastructure-invalid`
+regardless of how good the output looks. The window is irrelevant to that: a
+restart inside the TTL is exactly as invalid as one outside it.
+
+**Unknown continuity is not continuity.** If the instance cannot be established
+at either end, the verdict is invalid. Accepting an attempt because we could not
+tell whether it was valid is the failure mode this phase exists to remove; the
+instance read at completion deliberately does *not* fall back to the admission
+value, because a fallback makes "we could not tell" indistinguishable from "it
+did not change".
+
+Two typed escalations carry it. `ATTESTATION_STALE` is refused **before**
+execution — discovering afterwards that a request was never validly admitted
+costs a GPU-minute to produce something that has to be thrown away.
+`ATTEMPT_NOT_ATTRIBUTABLE` is emitted after a completion whose backend changed,
+and the output is discarded rather than returned with a warning field beside it:
+an unattributable answer that ships with a caveat is an answer that will be read
+without the caveat. Both are `retryableLocal` and neither is a statement about
+the model — a qualification campaign must **drop** such an attempt, not score it.
+
+Enforcement applies where something is actually being claimed. A response whose
+`completeness` is `unattested` already says in every field that identity was not
+proven, so there is no stale attestation being *used*; gating it too would turn a
+degraded provenance probe into a total outage, which is how evidence features get
+switched off. The lifetime record is published for every routed request either
+way.
+
 ## API compatibility
 
 Additive. Every Phase 1 field keeps its name, its type and its value.
@@ -391,8 +517,18 @@ key. Image components are basenames. Artifact-read failures report the error
   response returns no slot or task id, so sampler and template facts stay at
   backend-instance scope and `seedSupport` stops at `requested`. `/slots` carries
   an `id_task`; exposing the same value on the chat response would close this.
-- **Pre-tokenizer confirmation.** The probe binds the vocabulary, not the
-  segmentation rule. `segmentationDigest` gives comparability instead.
+- **Proof of tokenizer equivalence.** The canary is behavioural coverage over a
+  finite corpus in both directions, not a proof that two implementations are the
+  same function. A substitution that changes segmentation only outside the
+  corpus is not detected, and every result says so in `coverageNote`.
+- **Multi-token detokenization.** `common_detokenize` applies spacing rules on
+  top of the vocabulary, so an expectation derived from the token table could
+  fail on a correct deployment. Decode cases are one id each.
+- **Re-attestation mid-request.** Evidence is carried across the attestation
+  window by instance continuity, which proves the process did not change. It
+  does not re-observe placement or image identity at completion; a backend
+  evicted from the GPU without restarting would not be caught until the next
+  request.
 - **`process-mapped` image binding in production**, so `completeness` will read
   `partial` on this deployment until `/proc/<pid>/maps` is readable. That is the
   intended behaviour, not a bug to work around: it is what keeps `configured-tree`

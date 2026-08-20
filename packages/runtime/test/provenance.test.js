@@ -153,9 +153,20 @@ const PROVEN_TOKENIZER = {
   artifactAttested: true,
   backendInstanceId: 'i1',
   runtimeTokenizerProof: {
-    method: 'runtime-vocab-probe', matches: true, samplesChecked: 24, samplesMatched: 24,
+    matches: true, samplesChecked: 24, samplesMatched: 24,
     segmentationDigest: `sha256:${'7c'.repeat(32)}`, backendInstanceId: 'i1',
     observedAt: '2026-08-20T12:00:00.000Z', detail: null,
+    canary: {
+      schemaVersion: 'bokahli.tokenizer-canary.v1',
+      canarySuiteId: 'qwen35-broad.v1', canarySuiteHash: `sha256:${'3a'.repeat(32)}`,
+      decodeCanaryVerified: true, encodeCanaryVerified: true,
+      encodeChecked: 40, encodeMatched: 40, decodeChecked: 54, decodeMatched: 54,
+      failedCaseIds: [], encodeReferenceMethod: 'llama-tokenize-vocab-only',
+      decodeReferenceMethod: 'gguf-token-table',
+      verifiedBackendInstanceId: 'i1', verifiedAt: '2026-08-20T12:00:00.000Z',
+      reasons: [], coverageNote: 'behavioural canary coverage, not proof of equivalence',
+    },
+    method: 'runtime-canary-probe',
   },
   now: NOW,
 };

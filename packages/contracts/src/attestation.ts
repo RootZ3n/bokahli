@@ -25,6 +25,7 @@
  * null and a sibling explains why, because a null with a reason is diagnosable
  * and a plausible default is not.
  */
+import type { TokenizerCanaryResult } from './canary.js';
 import type { ArtifactDigest, ModelId } from './identity.js';
 
 /** How a fact was obtained. See the module comment. */
@@ -73,7 +74,14 @@ export type TokenCountSource =
  * vocabulary the process actually loaded rather than the one the file declares.
  */
 export interface RuntimeTokenizerProof {
-  readonly method: 'runtime-vocab-probe';
+  /**
+   * `runtime-vocab-probe` is the decode-only form f270ee9 shipped. It is
+   * retained as a value, not as an acceptable one: it proves ids decode to the
+   * expected bytes and says nothing about how text is encoded into ids, so it
+   * can never reach `encodeCanaryVerified` and therefore never supports a
+   * `runtime_tokenizer` claim. `runtime-canary-probe` is the two-sided form.
+   */
+  readonly method: 'runtime-vocab-probe' | 'runtime-canary-probe';
   /** Whether every sampled id round-tripped to the artifact's own token text. */
   readonly matches: boolean;
   readonly samplesChecked: number;
@@ -93,6 +101,14 @@ export interface RuntimeTokenizerProof {
   readonly backendInstanceId: string | null;
   readonly observedAt: string;
   readonly detail: string | null;
+  /**
+   * The two-sided canary. Null when no suite is pinned for this artifact.
+   *
+   * A null here is the honest state of an artifact that has been installed but
+   * not prepared: the decode probe above may still have run and matched, and
+   * that is still not tokenizer identity.
+   */
+  readonly canary: TokenizerCanaryResult | null;
 }
 
 /**
@@ -107,8 +123,14 @@ export interface RuntimeTokenizerProof {
  *      collide,
  *   3. the file's declared pre-tokenizer is present, since without it the
  *      segmentation rule is unnamed,
- *   4. a `runtimeProof` matched, and
- *   5. that proof was taken against *this* backend instance.
+ *   4. the runtime **decoded** the sampled ids to the artifact's own bytes,
+ *   5. the runtime **encoded** the pinned canary corpus to the pinned ids, and
+ *   6. both were observed against *this* backend instance.
+ *
+ * 5 is the condition f270ee9 lacked. Its proof ran only in the decode
+ * direction, and the direction that produces `usage.prompt_tokens` is the other
+ * one. A load-time override of merges, of the pre-tokenizer, or of added-token
+ * handling leaves every decode sample passing and changes every count.
  *
  * `vocabSizeMatch` is retained as supporting evidence and is not sufficient on
  * its own; a disagreement still refuses, but agreement no longer proves.
@@ -134,10 +156,41 @@ export interface TokenizerIdentity extends Observed {
   readonly runtimeProof: RuntimeTokenizerProof | null;
   /**
    * Whether the pre-tokenizer the artifact declares was confirmed in the
-   * runtime. Always false today: see `RuntimeTokenizerProof.segmentationDigest`
-   * for why confirming it is not attempted.
+   * runtime.
+   *
+   * True when the encode canary passed: a changed pre-tokenizer changes where
+   * text splits, and the corpus is chosen so that it does. This is a
+   * *behavioural* confirmation over a finite corpus, not a proof that the two
+   * implementations are the same function — see `TokenizerCanaryResult`.
    */
   readonly pretokenizerVerified: boolean;
+  // -- the seven distinguished attestation facts --------------------------
+  //
+  // Kept as separate top-level booleans rather than folded into one verdict,
+  // because every collapse in this file's history has been a downgrade
+  // presented as a simplification. A reader asking "was encoding checked?"
+  // must not have to infer it from a composite.
+  /**
+   * The file-side identity is bound to the artifact the backend was attested to
+   * be serving: content digest, family and pre-tokenizer all present, on an
+   * attested artifact. Necessary, and on its own worth nothing — every
+   * `--override-kv` attack in the audit passes this.
+   */
+  readonly metadataBound: boolean;
+  /** Sampled `token id -> bytes` matched the artifact's own table. */
+  readonly decodeCanaryVerified: boolean;
+  /**
+   * Every pinned `bytes -> token ids` case matched.
+   *
+   * This is the direction `usage.prompt_tokens` comes from, and the one
+   * f270ee9 never checked.
+   */
+  readonly encodeCanaryVerified: boolean;
+  readonly canarySuiteId: string | null;
+  readonly canarySuiteHash: string | null;
+  /** The backend instance the canary ran against. */
+  readonly verifiedBackendInstanceId: string | null;
+  readonly verifiedAt: string | null;
   /**
    * sha256 over the tokenizer-defining metadata: family, pre-tokenizer, the
    * full token list, the merge list, token types, and the special token ids.
@@ -563,4 +616,72 @@ export interface QualificationAttestation {
    * the field that makes copying detectable.
    */
   readonly backendInstanceId: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// attempt lifetime
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether the evidence behind one request survived the request.
+ *
+ * An attestation is a photograph. f270ee9 gave it a 60-second expiry, which
+ * made staleness visible and left two questions unanswered: what happens when a
+ * request that was admitted under valid evidence takes longer than 60 seconds,
+ * and what happens when the backend restarts while it runs.
+ *
+ * Both matter here rather than in theory. A 32K prefill on this deployment
+ * measures 88.5 seconds at the 65536 tier and tens of seconds at 32768; long
+ * requests are the normal case, not the edge. Two wrong answers were available:
+ *
+ *   - refuse anything that crosses the TTL, which discards a correct answer
+ *     because a clock advanced, and loses attribution for exactly the longest
+ *     and most expensive requests;
+ *   - ignore the TTL at completion, which accepts an answer produced by a
+ *     process that is no longer the process that was attested.
+ *
+ * The distinction that resolves it is not elapsed time but *continuity*. A
+ * backend that never restarted is still the backend that was attested, however
+ * long the request took. A backend that restarted is a different process, and
+ * an answer it produced is infrastructure-invalid no matter how good it looks —
+ * a restart mid-request means a fresh context, an unattested load, and an
+ * unknown placement.
+ */
+export type AttemptValidity =
+  /** Admitted under valid evidence, completed by the same backend instance. */
+  | 'valid'
+  /**
+   * The output may be perfectly good and it cannot be attributed. Not a model
+   * failure and not an error the caller caused: qualification must be able to
+   * discard it without scoring it against the model.
+   */
+  | 'infrastructure-invalid';
+
+export interface AttemptLifetime {
+  readonly admittedAt: string;
+  readonly completedAt: string;
+  /** When the evidence behind this attempt was observed, and when it lapses. */
+  readonly attestationObservedAt: string;
+  readonly attestationExpiresAt: string;
+  readonly instanceAtAdmission: string | null;
+  readonly instanceAtCompletion: string | null;
+  /** Evidence had not already lapsed when the request was admitted. */
+  readonly attestationValidAtAdmission: boolean;
+  /**
+   * The request outlived its attestation's TTL. Not a fault on its own — see
+   * `revalidation` for what carries it across.
+   */
+  readonly crossedAttestationTtl: boolean;
+  /** Same backend process at admission and at completion, both known. */
+  readonly instanceContinuous: boolean;
+  /**
+   * How evidence was carried past the TTL.
+   *
+   * `instance-continuity` is the cheap proof and the sufficient one: the
+   * process that was attested is the process that answered. `none` means the
+   * TTL was never crossed and nothing needed carrying.
+   */
+  readonly revalidation: 'none' | 'instance-continuity';
+  readonly verdict: AttemptValidity;
+  readonly reasons: readonly string[];
 }

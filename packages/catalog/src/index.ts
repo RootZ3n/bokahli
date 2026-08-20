@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
+import { dirname, isAbsolute, resolve } from 'node:path';
 import {
   DIGEST_PATTERN,
   EMPTY_LUAK_EVIDENCE,
@@ -27,6 +28,16 @@ export interface InternalArtifact {
   readonly digest: ArtifactDigest;
   /** INTERNAL ONLY. Must never be serialised to an API response. */
   readonly artifactPath: string;
+  /**
+   * Where the pinned tokenizer canary for this artifact lives. INTERNAL ONLY.
+   *
+   * A path rather than an inline suite, because the suite is a few hundred
+   * lines of expectations that an operator reviews as its own file, and because
+   * the catalog is hand-edited while the canary is generated. Null means this
+   * artifact was installed but never prepared: its token counts stay unproven,
+   * which is the correct state and not an error.
+   */
+  readonly tokenizerCanaryPath: string | null;
   /** Alias the backend is started with; used to attest served identity. */
   readonly runtimeAlias: string;
   readonly backend: string;
@@ -71,6 +82,7 @@ export class Catalog {
 
   static async load(catalogPath: string): Promise<Catalog> {
     const raw = await readFile(catalogPath, 'utf8');
+    const catalogDir = dirname(resolve(catalogPath));
     let parsed: unknown;
     try {
       parsed = JSON.parse(raw);
@@ -101,7 +113,7 @@ export class Catalog {
       throw new CatalogError('catalog defines no artifacts');
     }
     for (const item of list as Record<string, unknown>[]) {
-      const entry = parseArtifact(item);
+      const entry = parseArtifact(item, catalogDir);
       if (!backends.has(entry.backend)) {
         throw new CatalogError(`artifact ${entry.modelId} names unknown backend ${entry.backend}`);
       }
@@ -215,7 +227,7 @@ function assertLoopback(baseUrl: string, name: string): void {
   }
 }
 
-function parseArtifact(item: Record<string, unknown>): InternalArtifact {
+function parseArtifact(item: Record<string, unknown>, catalogDir: string): InternalArtifact {
   const modelId = item['modelId'];
   if (!isValidModelId(modelId)) {
     throw new CatalogError(
@@ -255,11 +267,21 @@ function parseArtifact(item: Record<string, unknown>): InternalArtifact {
     );
   }
   const operational = item['operational'] as CatalogEntry['operational'];
+  // Resolved against the catalog's own directory, so a checkout at a different
+  // path still finds its canaries and no absolute path has to be committed.
+  const canaryRaw = item['tokenizerCanaryPath'];
+  const tokenizerCanaryPath =
+    typeof canaryRaw === 'string' && canaryRaw.length > 0
+      ? isAbsolute(canaryRaw)
+        ? canaryRaw
+        : resolve(catalogDir, canaryRaw)
+      : null;
   return {
     modelId,
     displayName: String(item['displayName'] ?? modelId),
     digest,
     artifactPath,
+    tokenizerCanaryPath,
     runtimeAlias,
     backend: String(item['backend'] ?? 'primary'),
     facts,

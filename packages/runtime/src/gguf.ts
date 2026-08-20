@@ -304,13 +304,17 @@ export async function readGgufTokenizerMetadata(path: string): Promise<GgufToken
 }
 
 /**
- * The artifact's token table, for the runtime vocabulary probe.
+ * Read selected key-value entries out of the header, stopping as soon as all of
+ * them are found.
  *
- * Separate from `readGgufTokenizerMetadata` because the caller needs the table
- * itself rather than a hash of it, and because holding 248,320 strings is worth
- * doing only for the moment the probe runs. Nothing caches the result.
+ * Shared by the token table and the token-type readers so the header-window
+ * handling exists once. Values the caller did not ask for are parsed (the
+ * format requires it, since entries are variable-length) but not retained.
  */
-export async function readGgufTokenTable(path: string): Promise<readonly string[] | null> {
+async function readGgufKeys(
+  path: string,
+  keys: readonly string[],
+): Promise<Map<string, GgufValue> | null> {
   const fh = await open(path, 'r');
   let window: Buffer;
   try {
@@ -328,15 +332,57 @@ export async function readGgufTokenTable(path: string): Promise<readonly string[
   if (version < 2 || version > 3) return null;
   void c.u64();
   const kvCount = c.u64();
+
+  const wanted = new Set(keys);
+  const out = new Map<string, GgufValue>();
   for (let i = 0; i < kvCount; i++) {
     const key = c.str();
     const type = c.u32();
     const value = c.value(type);
-    if (key === 'tokenizer.ggml.tokens') {
-      return Array.isArray(value) ? (value as readonly string[]) : null;
+    if (wanted.has(key)) {
+      out.set(key, value);
+      if (out.size === wanted.size) break;
     }
   }
-  return null;
+  return out;
+}
+
+/**
+ * The artifact's token table, for the runtime vocabulary probe.
+ *
+ * Separate from `readGgufTokenizerMetadata` because the caller needs the table
+ * itself rather than a hash of it, and because holding 248,320 strings is worth
+ * doing only for the moment the probe runs. Nothing caches the result.
+ */
+export async function readGgufTokenTable(path: string): Promise<readonly string[] | null> {
+  const kv = await readGgufKeys(path, ['tokenizer.ggml.tokens']);
+  const v = kv?.get('tokenizer.ggml.tokens');
+  return Array.isArray(v) ? (v as readonly string[]) : null;
+}
+
+/**
+ * Per-token type codes, parallel to the token table.
+ *
+ * Needed because not every vocabulary entry is comparable through
+ * `/detokenize`. llama.cpp renders an UNUSED entry — the `[PAD…]` padding that
+ * fills a vocabulary out to a round size — as the empty string, so a canary that
+ * pinned the artifact's stored text for one would fail against a completely
+ * healthy backend. A canary that fails when nothing is wrong is worse than no
+ * canary, because it gets switched off. Codes follow GGUF's
+ * `llama_token_type`: 0 UNDEFINED, 1 NORMAL, 2 UNKNOWN, 3 CONTROL,
+ * 4 USER_DEFINED, 5 UNUSED, 6 BYTE.
+ */
+export async function readGgufTokenTypes(path: string): Promise<Int32Array | null> {
+  const kv = await readGgufKeys(path, ['tokenizer.ggml.token_type']);
+  const v = kv?.get('tokenizer.ggml.token_type');
+  if (v === undefined || typeof v !== 'object' || !('kind' in v)) return null;
+  const raw = v as RawArray;
+  // I32 only: anything else is a format this reader has not seen and must not
+  // reinterpret as one it has.
+  if (raw.elementType !== Ty.I32 && raw.elementType !== Ty.U32) return null;
+  const out = new Int32Array(raw.count);
+  for (let i = 0; i < raw.count; i++) out[i] = raw.bytes.readInt32LE(i * 4);
+  return out;
 }
 
 /** Hash arbitrary template text the same way, for comparing runtime against artifact. */

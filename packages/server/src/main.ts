@@ -1,6 +1,14 @@
 import { createServer, type Server } from 'node:http';
+import { readFile } from 'node:fs/promises';
 import { Catalog } from '@bokahli/catalog';
-import { AdmissionQueue, findBackendPids, GpuMonitor, LlamaBackend } from '@bokahli/runtime';
+import type { TokenizerCanarySuite } from '@bokahli/contracts';
+import {
+  AdmissionQueue,
+  findBackendPids,
+  GpuMonitor,
+  LlamaBackend,
+  validateCanarySuite,
+} from '@bokahli/runtime';
 import { loadConfig, loadOrCreateToken } from './config.js';
 import { QualificationFactsProvider } from './facts.js';
 import { QualificationGate } from './qualification.js';
@@ -108,6 +116,55 @@ async function main(): Promise<void> {
   // Provenance probes. The executable is normally located from the running
   // process's own argv; the env var is a fallback for a deployment where that
   // cannot be read, and is a path, so it never reaches a response.
+  // Pinned tokenizer canaries, loaded and validated once.
+  //
+  // At startup rather than per request, and refused rather than tolerated: a
+  // suite that does not parse, does not hash to its own contents, or names a
+  // different artifact is an operator error, and letting it through would show
+  // up months later as `encodeCanaryVerified: false` that reads like a
+  // tokenizer problem. An artifact with *no* canary is a different thing
+  // entirely — an artifact that was installed but never prepared — and starts
+  // normally with its token counts unproven.
+  const canaries = new Map<string, TokenizerCanarySuite>();
+  for (const a of catalog.internalAll()) {
+    if (a.tokenizerCanaryPath === null) {
+      telemetry.log('warn', 'canary.absent', {
+        modelId: a.modelId,
+        note:
+          'no tokenizer canary is pinned for this artifact, so its token counts will ' +
+          'stay runtime_reported_unknown_tokenizer. Run scripts/generate-tokenizer-canary.mjs.',
+      });
+      continue;
+    }
+    let suite: TokenizerCanarySuite;
+    try {
+      suite = JSON.parse(await readFile(a.tokenizerCanaryPath, 'utf8')) as TokenizerCanarySuite;
+    } catch (err) {
+      throw new Error(
+        `tokenizer canary for ${a.modelId} could not be read: ${(err as Error).name}`,
+      );
+    }
+    const errs = validateCanarySuite(suite);
+    if (errs.length > 0) {
+      throw new Error(`tokenizer canary for ${a.modelId} is invalid: ${errs.join('; ')}`);
+    }
+    if (suite.artifactDigest !== a.digest) {
+      throw new Error(
+        `tokenizer canary for ${a.modelId} was generated for a different artifact ` +
+          '(a canary is expectations about one set of bytes and is not portable)',
+      );
+    }
+    canaries.set(a.digest, suite);
+    telemetry.log('info', 'canary.loaded', {
+      modelId: a.modelId,
+      suiteId: suite.suiteId,
+      suiteHash: suite.payloadHash,
+      encodeCases: suite.encode.length,
+      decodeCases: suite.decode.length,
+      encodeReference: suite.encodeReference.method,
+    });
+  }
+
   const facts = new QualificationFactsProvider({
     backend,
     runtimeExecutablePathFallback: process.env['BOKAHLI_RUNTIME_EXECUTABLE'] ?? null,
@@ -122,6 +179,15 @@ async function main(): Promise<void> {
         return null;
       }
     },
+    artifactTokenTypes: async (a) => {
+      try {
+        const { readGgufTokenTypes } = await import('@bokahli/runtime');
+        return await readGgufTokenTypes(a.artifactPath);
+      } catch {
+        return null;
+      }
+    },
+    canarySuite: (a) => canaries.get(a.digest) ?? null,
   });
 
   const deps: AppDeps = {
