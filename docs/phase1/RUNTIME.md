@@ -48,6 +48,25 @@ projection in `@bokahli/catalog` does not carry the field.
 | `--no-webui` | Bokahli owns the human surface. |
 | *(absent)* `-v` | Deliberately not passed: verbose logging would put prompt contents in the journal. |
 
+## Device placement is checked, not assumed
+
+`--n-gpu-layers 999` is a request, not a guarantee. When CUDA fails to
+initialise, llama.cpp prints a warning, ignores the flag, and serves the correct
+artifact from system RAM at roughly a third of the decode rate — while attesting
+perfectly. That happened on the 2026-08-20 reboot and passed every acceptance
+check; see `REBOOT-2026-08-20.md`.
+
+Two checks now bracket the load:
+
+| | |
+|---|---|
+| `ExecStartPre` | `scripts/require-gpu.sh` — loads `nvidia_uvm`, then proves CUDA initialises via `llama-server --list-devices` |
+| `ExecStartPost` | `scripts/assert-gpu-placement.sh` — asks the driver whether the loaded backend actually holds VRAM |
+
+`NoNewPrivileges` is off for `bokahli-runtime.service` alone, because loading
+`nvidia_uvm` needs the setuid `/usr/bin/nvidia-modprobe`. `bokahli.service`, the
+network-facing unit, keeps it on. `BOKAHLI_REQUIRE_GPU=0` opts out deliberately.
+
 ## Replacing the pre-v2 process
 
 The runtime that ran before Phase 1 was an interactive `bash -c ... | head -30`.

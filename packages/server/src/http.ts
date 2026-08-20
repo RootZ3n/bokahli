@@ -3,7 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 import type { Catalog } from '@bokahli/catalog';
-import { AdmissionQueue, GpuMonitor, LlamaBackend } from '@bokahli/runtime';
+import { AdmissionQueue, BackendUnavailableError, GpuMonitor, LlamaBackend } from '@bokahli/runtime';
 import {
   bokahliError,
   ERROR_STATUS,
@@ -12,6 +12,7 @@ import {
   type BokahliRequest,
   type BokahliResponse,
   type CapacityUnavailable,
+  type Escalation,
   type GpuSnapshot,
   type RequestTelemetry,
   type RouteOutcome,
@@ -112,11 +113,20 @@ async function handleReady(deps: AppDeps, res: ServerResponse, requestId: string
   const slots = live ? await deps.backend.slots() : [];
 
   const ready = live && attestation?.attested === true && gpuState.leaseAvailable;
+  // Three distinguishable runtime states, because they call for different
+  // operator actions: absent (restart it), present-but-wrong (investigate what
+  // it is serving), healthy.
+  const runtimeHealth = !live || attestation?.reachable === false
+    ? 'unavailable'
+    : attestation?.attested === true
+      ? 'healthy'
+      : 'unattested';
   return json(res, ready ? 200 : 503, {
     status: ready ? 'ready' : 'not-ready',
     requestId,
     startedAt: deps.startedAt,
     runtime: {
+      health: runtimeHealth,
       reachable: live,
       build: attestation?.build ?? null,
       pinnedBuildMatches: attestation ? attestation.reasons.length === 0 : false,
@@ -409,12 +419,44 @@ async function streamChat(deps: AppDeps, res: ServerResponse, a: ExecArgs): Prom
       }
     }
   } catch (err) {
-    deps.telemetry.log('error', 'stream.failed', {
+    if (a.signal.aborted) {
+      res.end();
+      return;
+    }
+    // Headers are already on the wire, so the terminal signal has to travel in
+    // the stream. It carries the same typed escalation a buffered caller would
+    // have received, and explicitly marks the partial text as not a completion.
+    const escalation = runtimeUnhealthyEscalation(a.spec.mode, err as Error);
+    deps.telemetry.log('warn', 'runtime.lostDuringExecution', {
       requestId: a.requestId,
+      modelId: a.served.modelId,
+      partialChars: text.length,
       message: (err as Error).message,
     });
-    sse(res, 'bokahli.error', { code: 'UPSTREAM_UNAVAILABLE', message: 'inference stream failed' });
+    const telemetry = buildTelemetry(a, {
+      firstTokenAt, promptTokens, completionTokens, promptTps, completionTps,
+    });
+    if (a.dialect === 'openai') {
+      sseRaw(res, {
+        id: a.requestId,
+        object: 'chat.completion.chunk',
+        model: a.served.modelId,
+        choices: [{ index: 0, delta: {}, finish_reason: 'runtime_unhealthy' }],
+        bokahli: { outcome: 'ESCALATE', route: escalation, telemetry },
+      });
+      res.write('data: [DONE]\n\n');
+    } else {
+      sse(res, 'bokahli.done', {
+        requestId: a.requestId,
+        outcome: 'ESCALATE',
+        route: escalation,
+        result: null,
+        partialTextDiscarded: text.length > 0,
+        telemetry,
+      });
+    }
     res.end();
+    deps.telemetry.record(telemetry, 'ESCALATE');
     return;
   }
 
@@ -453,21 +495,40 @@ async function bufferChat(deps: AppDeps, res: ServerResponse, a: ExecArgs): Prom
   let promptTps: number | null = null;
   let completionTps: number | null = null;
 
-  for await (const ev of deps.backend.chatStream(
-    a.artifact.runtimeAlias,
-    { messages: a.messages, maxTokens: a.maxTokens, temperature: a.temperature, topP: a.topP },
-    a.signal,
-  )) {
-    if (ev.type === 'delta') {
-      if (firstTokenAt === null) firstTokenAt = Date.now();
-      text += ev.text;
-    } else {
-      finishReason = ev.finishReason ?? 'stop';
-      promptTokens = ev.usage?.prompt_tokens ?? ev.timings?.prompt_n ?? null;
-      completionTokens = ev.usage?.completion_tokens ?? ev.timings?.predicted_n ?? null;
-      promptTps = ev.timings?.prompt_per_second ?? null;
-      completionTps = ev.timings?.predicted_per_second ?? null;
+  try {
+    for await (const ev of deps.backend.chatStream(
+      a.artifact.runtimeAlias,
+      { messages: a.messages, maxTokens: a.maxTokens, temperature: a.temperature, topP: a.topP },
+      a.signal,
+    )) {
+      if (ev.type === 'delta') {
+        if (firstTokenAt === null) firstTokenAt = Date.now();
+        text += ev.text;
+      } else {
+        finishReason = ev.finishReason ?? 'stop';
+        promptTokens = ev.usage?.prompt_tokens ?? ev.timings?.prompt_n ?? null;
+        completionTokens = ev.usage?.completion_tokens ?? ev.timings?.predicted_n ?? null;
+        promptTps = ev.timings?.prompt_per_second ?? null;
+        completionTps = ev.timings?.predicted_per_second ?? null;
+      }
     }
+  } catch (err) {
+    if (a.signal.aborted) throw err; // the client left; nothing to report to
+    // The runtime died between attestation and completion. Whatever partial
+    // text arrived is discarded rather than returned: a truncated answer with
+    // no terminal event from an attested runtime is exactly the "plausible
+    // model output" this path must never emit.
+    deps.telemetry.log('warn', 'runtime.lostDuringExecution', {
+      requestId: a.requestId,
+      modelId: a.served.modelId,
+      partialChars: text.length,
+      message: (err as Error).message,
+    });
+    return finishNonRouted(
+      deps, res, a.requestId, a.receivedAt, a.t0, a.spec,
+      runtimeUnhealthyEscalation(a.spec.mode, err as Error),
+      a.routeMs, a.gpu, a.dialect,
+    );
   }
 
   const telemetry = buildTelemetry(a, {
@@ -532,6 +593,31 @@ function buildTelemetry(
     contextUtilisation: served > 0 ? used / served : null,
     runtimeBuild: a.served.runtime.build,
     gpu: a.gpu,
+  };
+}
+
+/**
+ * Mid-execution loss of the runtime, expressed in the same contract the router
+ * uses when the runtime is already gone at routing time. A caller cannot tell —
+ * and should not have to tell — which side of that line their request fell on.
+ */
+function runtimeUnhealthyEscalation(mode: RouteSpec['mode'], err: Error): Escalation {
+  const cause =
+    err instanceof BackendUnavailableError ? err.message : `inference stream failed: ${err.message}`;
+  return {
+    kind: 'ESCALATE',
+    mode,
+    reason: 'RUNTIME_UNHEALTHY',
+    detail:
+      'the local inference runtime stopped answering while this request was ' +
+      `executing, so no attested completion exists: ${cause}. Any partial output ` +
+      'was discarded rather than returned as an answer.',
+    unmet: [{ requirement: 'runtime.reachable', required: 'true', actual: 'false' }],
+    considered: [],
+    authorityNote:
+      'Bokahli emits a typed escalation and stops. Bokahli holds no cloud-routing ' +
+      'authority; where this request goes next is the calling system\u2019s decision.',
+    retryableLocal: true,
   };
 }
 

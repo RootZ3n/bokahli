@@ -20,6 +20,17 @@ export interface BackendSlot {
 
 export interface Attestation {
   readonly attested: boolean;
+  /**
+   * Whether the backend answered at all.
+   *
+   * This separates two failures that must never be conflated: a runtime that is
+   * *absent* (crashed, restarting, not yet loaded) and a runtime that is
+   * *present but serving something else*. The first is a health problem and is
+   * transient; the second is an identity problem and is a refusal. Collapsing
+   * them would either turn a crash into an accusation of substitution, or turn
+   * a substitution into "try again later".
+   */
+  readonly reachable: boolean;
   readonly reasons: readonly string[];
   readonly build: string | null;
   readonly servedContextTokens: number | null;
@@ -147,6 +158,7 @@ export class LlamaBackend {
     } catch (err) {
       return {
         attested: false,
+        reachable: false,
         reasons: [`backend unreachable: ${(err as Error).message}`],
         build: null,
         servedContextTokens: null,
@@ -172,6 +184,7 @@ export class LlamaBackend {
     const n_ctx = p.default_generation_settings?.n_ctx ?? null;
     return {
       attested: reasons.length === 0,
+      reachable: true,
       reasons,
       build,
       servedContextTokens: n_ctx,
@@ -197,17 +210,65 @@ export class LlamaBackend {
       timings_per_token: false,
     };
 
-    const res = await fetch(`${this.#baseUrl}/v1/chat/completions`, {
-      method: 'POST',
-      headers: this.#headers({ 'content-type': 'application/json' }),
-      body: JSON.stringify(body),
-      signal,
-    });
+    // Bound the wait for response *headers* only. A backend that has died
+    // between attestation and execution leaves an accept()ing socket behind
+    // just long enough to hang a caller forever; a backend that is alive but
+    // slow must not be cut off mid-generation. Aborting on the header deadline
+    // draws that line in the only place it can honestly be drawn.
+    const headerCtrl = new AbortController();
+    const onOuterAbort = (): void => headerCtrl.abort();
+    signal.addEventListener('abort', onOuterAbort, { once: true });
+    const headerTimer = setTimeout(() => headerCtrl.abort(), this.#timeoutMs);
+
+    let res: Response;
+    try {
+      res = await fetch(`${this.#baseUrl}/v1/chat/completions`, {
+        method: 'POST',
+        headers: this.#headers({ 'content-type': 'application/json' }),
+        body: JSON.stringify(body),
+        signal: headerCtrl.signal,
+      });
+    } catch (err) {
+      if (signal.aborted) throw err; // genuine client disconnect
+      throw new BackendUnavailableError(
+        `backend did not respond within ${this.#timeoutMs} ms: ${(err as Error).message}`,
+      );
+    } finally {
+      // The timer is done once headers are in; the forwarding listener is not.
+      // It must outlive this block so a client disconnect mid-generation still
+      // cancels the upstream request rather than orphaning it.
+      clearTimeout(headerTimer);
+    }
+
     if (!res.ok || !res.body) {
+      signal.removeEventListener('abort', onOuterAbort);
       throw new BackendUnavailableError(`backend chat returned ${res.status}`);
     }
 
-    const reader = res.body.getReader();
+    try {
+      yield* readStream(res.body);
+    } finally {
+      signal.removeEventListener('abort', onOuterAbort);
+    }
+  }
+
+  async #get(path: string, timeoutMs: number): Promise<Response> {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      return await fetch(`${this.#baseUrl}${path}`, {
+        signal: ctrl.signal,
+        headers: this.#headers(),
+      });
+    } finally {
+      clearTimeout(t);
+    }
+  }
+}
+
+/** Parse llama-server's SSE body into Bokahli stream events. */
+async function* readStream(body: ReadableStream<Uint8Array>): AsyncGenerator<StreamEvent> {
+    const reader = body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
     let finishReason = 'stop';
@@ -247,18 +308,4 @@ export class LlamaBackend {
       }
     }
     yield { type: 'done', text: '', finishReason, ...(timings ? { timings } : {}), ...(usage ? { usage } : {}) };
-  }
-
-  async #get(path: string, timeoutMs: number): Promise<Response> {
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), timeoutMs);
-    try {
-      return await fetch(`${this.#baseUrl}${path}`, {
-        signal: ctrl.signal,
-        headers: this.#headers(),
-      });
-    } finally {
-      clearTimeout(t);
-    }
-  }
 }

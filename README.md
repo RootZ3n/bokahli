@@ -40,8 +40,8 @@ packages/server      HTTP API, bearer auth, router, telemetry, chat UI
 catalog/             the artifact catalog
 config/              environment templates
 systemd/             user units
-scripts/             install, measure, verify, rollback
-docs/phase1/         evidence and measurements
+scripts/             install, measure, verify, rollback, GPU preconditions
+docs/phase1/         evidence, measurements, lifecycle and reboot records
 ```
 
 ## Security boundary
@@ -122,7 +122,23 @@ qualification claim.
 
 ```bash
 scripts/verify.sh     # 69 checks against a running deployment
+npm test              # 16 unit and lifecycle regression tests
 ```
+
+## Failure behaviour
+
+The API and the inference runtime have independent lifecycles. When
+`llama-server` crashes or restarts, Bokahli stays up: `GET /health/live` keeps
+answering, authenticated readiness reports `runtime.health: "unavailable"`, and
+inference returns a typed terminal `ESCALATE` / `RUNTIME_UNHEALTHY` with
+`retryableLocal: true` rather than hanging, erroring, or emitting plausible
+output. Routing resumes on its own once the runtime is back **and** its exact
+identity has been re-attested — no API restart. Measured recovery from
+`SIGKILL` to a successful EXACT request: 6.69 s. See `docs/phase1/LIFECYCLE.md`.
+
+The runtime additionally refuses to start unless the model actually lands on the
+GPU, because a CPU-only fallback serves the correct artifact and attests
+correctly at a third of the rate. See `docs/phase1/REBOOT-2026-08-20.md`.
 
 ## Rollback
 

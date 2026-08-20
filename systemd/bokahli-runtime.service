@@ -19,6 +19,12 @@ EnvironmentFile=%h/.config/bokahli/shared.env
 EnvironmentFile=%h/.config/bokahli/runtime.env
 WorkingDirectory=%h
 
+# Prove the GPU is actually usable before loading 12.58 GiB. See the script for
+# the boot race this closes; without it, a runtime that lost CUDA comes up
+# CPU-only, serves the correct artifact at a third of the rate, and attests
+# perfectly while doing it.
+ExecStartPre=/home/zen/repos/bokahli/scripts/require-gpu.sh
+
 # Explicit context and slot settings — never defaulted.
 # --alias gives the backend a stable served name so Bokahli can attest identity
 #   instead of trusting a filesystem path.
@@ -45,6 +51,12 @@ ExecStart=/home/zen/llama.cpp/build/bin/llama-server \
 # and /health reports ok, so dependent units never start against a cold runtime.
 ExecStartPost=/bin/bash -c 'for i in $(seq 1 240); do curl -sf --max-time 2 http://127.0.0.1:${BOKAHLI_RUNTIME_PORT}/health >/dev/null && exit 0; sleep 1; done; echo "runtime did not become ready within 240s" >&2; exit 1'
 
+# Placement assertion: the model is loaded, so prove it landed where it was
+# meant to. A CUDA-serving llama-server holds /dev/nvidia-uvm open; a CPU-only
+# one does not. This is the check whose absence let the reboot degradation pass
+# every acceptance test.
+ExecStartPost=/home/zen/repos/bokahli/scripts/assert-gpu-placement.sh
+
 Restart=on-failure
 RestartSec=5
 TimeoutStartSec=300
@@ -58,7 +70,15 @@ SyslogIdentifier=bokahli-runtime
 
 # Modest hardening. The process needs the NVIDIA devices and the model file, so
 # it is not sandboxed aggressively; these are the restrictions that cost nothing.
-NoNewPrivileges=true
+#
+# NoNewPrivileges is off for this unit alone, and only because of it: creating
+# the CUDA device nodes at boot requires the setuid helper
+# /usr/bin/nvidia-modprobe, which NoNewPrivileges=true silently defeats. With it
+# on, this unit could not load nvidia_uvm itself and depended on some unrelated
+# GPU consumer having raced ahead of it — which is precisely how the
+# 2026-08-20 reboot came up CPU-only. bokahli.service, the network-facing unit,
+# keeps NoNewPrivileges=true.
+NoNewPrivileges=false
 PrivateTmp=true
 ProtectControlGroups=true
 ProtectKernelTunables=true

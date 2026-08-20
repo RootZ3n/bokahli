@@ -113,6 +113,11 @@ async function decideExact(
   }
 
   const attestation = await ctx.backend.attest(artifact);
+  // Runtime absent is a health outcome; runtime present but serving something
+  // else is a refusal. Only the second is a statement about identity.
+  if (!attestation.reachable) {
+    return runtimeUnhealthy('EXACT', attestation.reasons, [assess(artifact, true, [])]);
+  }
   if (!attestation.attested) {
     return refuse(
       'EXACT',
@@ -180,6 +185,9 @@ async function decideProfile(
 
   const chosen = eligible[0] as InternalArtifact;
   const attestation = await ctx.backend.attest(chosen);
+  if (!attestation.reachable) {
+    return runtimeUnhealthy('PROFILE', attestation.reasons, assessments);
+  }
   if (!attestation.attested) {
     return escalate(
       'PROFILE',
@@ -363,6 +371,9 @@ async function decideAuto(
   // this is a single-candidate selection rather than a ranked judgement.
   const chosen = eligible[0] as InternalArtifact;
   const attestation = await ctx.backend.attest(chosen);
+  if (!attestation.reachable) {
+    return runtimeUnhealthy('AUTO', attestation.reasons, assessments);
+  }
   if (!attestation.attested) {
     return escalate(
       'AUTO',
@@ -436,8 +447,48 @@ function escalate(
   detail: string,
   unmet: readonly UnmetRequirement[],
   considered: readonly CandidateAssessment[],
+  retryableLocal = false,
 ): Escalation {
-  return { kind: 'ESCALATE', mode, reason, detail, unmet, considered, authorityNote: AUTHORITY_NOTE };
+  return {
+    kind: 'ESCALATE',
+    mode,
+    reason,
+    detail,
+    unmet,
+    considered,
+    authorityNote: AUTHORITY_NOTE,
+    retryableLocal,
+  };
+}
+
+/**
+ * The runtime is not answering.
+ *
+ * Bokahli's API is deliberately still up to say so. A terminal, typed result
+ * beats every alternative available here: hanging until the caller times out
+ * teaches them nothing, a 500 says the API is broken when it is not, and
+ * answering from anything other than an attested runtime would be a fabricated
+ * completion. `retryableLocal` marks this as a health condition — the local
+ * route is correct and will serve again once the runtime returns and its exact
+ * identity is re-attested.
+ */
+function runtimeUnhealthy(
+  mode: Escalation['mode'],
+  reasons: readonly string[],
+  considered: readonly CandidateAssessment[],
+): Escalation {
+  return escalate(
+    mode,
+    'RUNTIME_UNHEALTHY',
+    'the local inference runtime is not answering, so no served identity can be ' +
+      'attested and no output can be produced: ' +
+      (reasons.join('; ') || 'backend unreachable') +
+      '. Bokahli will serve this route again once the runtime is healthy and its ' +
+      'exact identity has been re-attested.',
+    [{ requirement: 'runtime.reachable', required: 'true', actual: 'false' }],
+    considered,
+    true,
+  );
 }
 
 function refuse(

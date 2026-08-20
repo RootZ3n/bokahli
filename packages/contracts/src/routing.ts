@@ -110,7 +110,17 @@ export type EscalateReason =
   | 'NO_QUALIFIED_LOCAL_ROUTE'
   | 'REQUIREMENTS_UNMET'
   | 'CONTEXT_EXCEEDS_LOCAL_CAPABILITY'
-  | 'CAPABILITY_UNSUPPORTED';
+  | 'CAPABILITY_UNSUPPORTED'
+  /**
+   * The local runtime is not answering, so no served identity can be attested.
+   *
+   * This is a *terminal* result for this request, not a retry loop and not an
+   * error: Bokahli says plainly that it cannot serve, rather than hanging,
+   * crashing, or — worst of all — emitting plausible output it did not get from
+   * an attested runtime. It is distinct from CAPACITY_UNAVAILABLE/
+   * RUNTIME_UNAVAILABLE, which means the runtime is present but busy.
+   */
+  | 'RUNTIME_UNHEALTHY';
 
 export interface Escalation {
   readonly kind: 'ESCALATE';
@@ -121,6 +131,13 @@ export interface Escalation {
   readonly considered: readonly CandidateAssessment[];
   /** Bokahli asserts no opinion about where this should go instead. */
   readonly authorityNote: string;
+  /**
+   * True when the local route itself is sound and the same request may succeed
+   * here later without any change by the caller — the runtime is simply not
+   * healthy right now. False when the escalation is a statement about local
+   * capability or qualification, which retrying cannot change.
+   */
+  readonly retryableLocal: boolean;
 }
 
 /**

@@ -1,6 +1,6 @@
 import { createServer, type Server } from 'node:http';
 import { Catalog } from '@bokahli/catalog';
-import { AdmissionQueue, GpuMonitor, LlamaBackend } from '@bokahli/runtime';
+import { AdmissionQueue, findBackendPids, GpuMonitor, LlamaBackend } from '@bokahli/runtime';
 import { loadConfig, loadOrCreateToken } from './config.js';
 import { createHandler, type AppDeps } from './http.js';
 import { Telemetry } from './telemetry.js';
@@ -129,36 +129,6 @@ async function main(): Promise<void> {
   };
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT', () => shutdown('SIGINT'));
-}
-
-/**
- * Find the pids of our own loopback backend.
- *
- * Scans /proc directly rather than shelling out to `ss`: the service runs with
- * a minimal PATH and restricted environment, and an unresolved helper here
- * silently degrades into "every request is a capacity failure". Matching on
- * argv is dependency-free and same-uid readable.
- */
-async function findBackendPids(baseUrl: string): Promise<readonly number[]> {
-  const { readdir, readFile } = await import('node:fs/promises');
-  const port = new URL(baseUrl).port;
-  const entries = await readdir('/proc');
-  const pids: number[] = [];
-
-  for (const name of entries) {
-    if (!/^\d+$/.test(name)) continue;
-    let argv: string;
-    try {
-      argv = await readFile(`/proc/${name}/cmdline`, 'utf8');
-    } catch {
-      continue; // process exited, or not ours to read
-    }
-    const args = argv.split('\0');
-    if (args.some((a) => a.endsWith('llama-server')) && args.includes(port)) {
-      pids.push(Number(name));
-    }
-  }
-  return pids;
 }
 
 async function adoptBackendPids(

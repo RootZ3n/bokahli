@@ -7,7 +7,23 @@ Description=Bokahli v2 — local AI platform API and chat UI
 Documentation=file:/home/zen/repos/bokahli/README.md
 After=network-online.target bokahli-runtime.service
 Wants=network-online.target
-Requires=bokahli-runtime.service
+#
+# Wants=, deliberately not Requires=.
+#
+# Requires= made a backend crash take the API layer down with it. Bokahli is the
+# authority for runtime health, and an authority that disappears exactly when the
+# thing it reports on fails is not an authority at all: callers got a connection
+# refused instead of a typed answer, /health/live went dark, and the API paid its
+# ~11 s startup digest verification again on the way back — turning a ~7 s backend
+# restart into ~18 s of total unavailability.
+#
+# Wants= keeps what was actually wanted (start the runtime alongside us) and drops
+# what was not (die with it). Ordering is still enforced by After=, so a cold boot
+# still starts the runtime first and Bokahli attests a loaded model on its first
+# probe. When the runtime is gone, Bokahli stays up and returns a typed
+# ESCALATE / RUNTIME_UNHEALTHY, and resumes routing on its own once the runtime
+# returns and its exact identity is re-attested — no API restart involved.
+Wants=bokahli-runtime.service
 StartLimitIntervalSec=300
 StartLimitBurst=5
 

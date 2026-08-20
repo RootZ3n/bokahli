@@ -54,11 +54,15 @@ Rejections are typed `CAPACITY_UNAVAILABLE` / `QUEUE_FULL` with HTTP 503 and a
 |-------|--------|
 | `systemctl --user restart bokahli.service` | Ready in ~12 s; runtime untouched |
 | `systemctl --user restart bokahli-runtime.service` | Runtime ready in 2.4 s |
-| `SIGKILL` the backend (simulated crash) | `Restart=on-failure` restarts it; `Requires=` propagates a restart to `bokahli.service`; full recovery ~18 s, verified by a successful request afterwards |
+| `SIGKILL` the backend (simulated crash) | `Restart=on-failure` restarts it; the API is untouched; inference unavailable for **6.69 s**, verified by a successful EXACT request afterwards |
 
-Because `Requires=` propagates, **a backend crash also restarts the API layer**,
-and Bokahli then pays its ~11 s digest verification again. Worst-case unavailability
-on a backend crash is therefore ≈ 18 s, not ≈ 7 s.
+**Superseded.** As first measured, `Requires=` propagated the restart to
+`bokahli.service`, the API paid its ~11 s digest verification again, and
+worst-case unavailability on a backend crash was ≈ 18 s. That coupling was the
+defect corrected on 2026-08-20: `Requires=` is now `Wants=`, the API stays up and
+answers with a typed `ESCALATE` / `RUNTIME_UNHEALTHY` while the backend is gone,
+and recovery is 6.69 s with the API never restarting. Full measurements and
+journal evidence: `../LIFECYCLE.md`.
 
 ## GPU lease contention
 

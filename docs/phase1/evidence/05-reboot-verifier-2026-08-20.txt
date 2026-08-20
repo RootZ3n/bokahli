@@ -1,0 +1,100 @@
+==============================================================
+Bokahli post-reboot verification — started 2026-08-20T11:16:05Z
+run from: Pehverse (100.84.209.89)
+target:   mushin 100.115.140.2
+==============================================================
+[phase 1] waiting for Mushin to go DOWN (max 300s)...
+  Mushin unreachable after 130s -> reboot in progress
+[phase 2] waiting for /health/live to return (max 900s)...
+  /health/live up 44s after the down window
+[phase 3] waiting for /health/ready (max 300s)...
+  ready 44s after the down window
+
+[phase 4] readiness detail
+{
+  "status": "ready",
+  "runtime": {
+    "reachable": true,
+    "build": "b10505-ee4c505a4",
+    "pinnedBuildMatches": true,
+    "attested": true,
+    "attestationFailures": [],
+    "servedContextTokens": 32768,
+    "totalSlots": 1,
+    "busySlots": 0
+  },
+  "capacity": {
+    "active": 0,
+    "maxConcurrent": 1
+  },
+  "gpuLease": {
+    "available": true,
+    "used": 1160
+  }
+}
+
+[phase 5] AUTHENTICATED EXACT INFERENCE (the acceptance test)
+{
+  "outcome": "ROUTED",
+  "content": "POST REBOOT EXACT OK",
+  "servedIdentity": {
+    "modelId": "qwen3.5-35b-a3b.q2-k",
+    "digest": "sha256:49533d47d170c0dad00e38f3aab0d8a5556654caa8144a7e6f3480c8e6761201",
+    "attested": true,
+    "method": "backend-props-match",
+    "build": "b10505-ee4c505a4",
+    "ctx": 32768,
+    "qualification": "INSTALLED_UNQUALIFIED"
+  },
+  "telemetry": {
+    "ttftMs": 360,
+    "totalMs": 661,
+    "decodeTps": 19.941770031508
+  }
+}
+
+[phase 6] negative controls
+  EXACT wrong digest      -> EXACT_DIGEST_MISMATCH
+  unauthenticated         -> HTTP 401
+  loopback backend :8081  -> HTTP 000 (000 = unreachable, correct)
+  path as model identity  -> BAD_REQUEST
+  '/home/' in /v1/models  -> 0 occurrences
+
+[phase 7] port exposure from the tailnet
+  22 OPEN
+  8080 OPEN
+  8081 closed/filtered
+  5355 closed/filtered
+  1716 closed/filtered
+
+[phase 8] boot-ordering evidence from Mushin's own journal
+    uptime: up 0 minute
+    boot:   2026-08-20 06:18:40
+    bokahli-runtime  enabled=enabled active=active restarts=0
+    bokahli          enabled=enabled active=active restarts=0
+    --- bokahli.service bind events this boot ---
+  {"event":"startup.begin","address":null,"port":8080,"message":null}
+  {"event":"listen.bound","address":"127.0.0.1","port":8080,"message":null}
+  {"event":"listen.bound","address":"100.115.140.2","port":8080,"message":null}
+  {"event":"startup.ready","address":null,"port":null,"message":null}
+  {"event":"auth.failed","address":null,"port":null,"message":null}
+    --- any failures this boot ---
+    startup.failed count: 0
+
+==============================================================
+RESULT: PASS
+{
+  "result": "PASS",
+  "exactOutcome": "ROUTED",
+  "attested": "true",
+  "servedModelId": "qwen3.5-35b-a3b.q2-k",
+  "wrongDigestReason": "EXACT_DIGEST_MISMATCH",
+  "unauthenticatedHttp": "401",
+  "backendHttp": "000",
+  "pathIdentityError": "BAD_REQUEST",
+  "homePathsInModels": "0",
+  "secondsToLive": 44,
+  "secondsToReady": 44
+}
+finished 2026-08-20T11:19:21Z
+==============================================================
