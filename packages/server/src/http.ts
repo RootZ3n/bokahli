@@ -18,10 +18,16 @@ import {
   type RequestTelemetry,
   type RouteOutcome,
   type RouteSpec,
+  type SamplerConfig,
   type ServedIdentity,
 } from '@bokahli/contracts';
 import { authenticate, AUTH_COOKIE } from './auth.js';
 import type { BokahliConfig } from './config.js';
+import {
+  LLAMA_UNSET_SEED, resolveSamplerFacts, resolveTokenCounts,
+  type BackendSlotParams,
+} from '@bokahli/runtime';
+import type { FactsSource } from './facts.js';
 import type { QualificationGate } from './qualification.js';
 import { route, type RouteContext } from './router.js';
 import { estimateTokens, Telemetry } from './telemetry.js';
@@ -35,6 +41,8 @@ export interface AppDeps {
   readonly queue: AdmissionQueue;
   readonly gpu: GpuMonitor;
   readonly telemetry: Telemetry;
+  /** Phase B2 provenance probes, cached against the live backend instance. */
+  readonly facts: FactsSource;
   readonly startedAt: string;
 }
 
@@ -114,6 +122,22 @@ async function handleReady(deps: AppDeps, res: ServerResponse, requestId: string
   const first = artifacts[0];
   const attestation = first ? await deps.backend.attest(first) : null;
   const slots = live ? await deps.backend.slots() : [];
+  // Provenance facts for the readiness view. Collected here rather than only on
+  // the chat path because the question an operator asks before a campaign — is
+  // this backend on the GPU, which process is it, what image is it running — is
+  // a readiness question, and answering it should not require sending a prompt.
+  const facts =
+    first && attestation
+      ? await deps.facts
+          .collect(
+            first,
+            attestation.attested,
+            attestation.build,
+            attestation.servedContextTokens,
+            attestation.totalSlots,
+          )
+          .catch(() => null)
+      : null;
 
   const ready = live && attestation?.attested === true && gpuState.leaseAvailable;
   // Three distinguishable runtime states, because they call for different
@@ -140,6 +164,11 @@ async function handleReady(deps: AppDeps, res: ServerResponse, requestId: string
       busySlots: slots.filter((s) => s.is_processing).length,
     },
     capacity: { ...deps.queue.stats() },
+    /**
+     * Whole-device telemetry. It says whether the GPU is busy; it does not say
+     * whether *our* backend is on it. `devicePlacement` below answers that, and
+     * the two are separate keys so neither can be read as the other.
+     */
     gpuLease: {
       available: gpuState.leaseAvailable,
       foreignHolders: gpuState.foreignHolders,
@@ -147,6 +176,13 @@ async function handleReady(deps: AppDeps, res: ServerResponse, requestId: string
       snapshot: gpuState.snapshot,
       error: gpuState.error,
     },
+    /** Phase B2. Which process is serving, and whether it holds the device. */
+    backendInstance: facts?.backendInstance ?? null,
+    devicePlacement: facts?.placement ?? null,
+    runtimeFacts: facts?.runtime ?? null,
+    tokenizer: facts?.tokenizer ?? null,
+    promptTemplate: facts?.template ?? null,
+    attestation: facts?.attestation ?? null,
     qualification: {
       authority: 'luak',
       integrated: false,
@@ -241,7 +277,7 @@ async function handleChat(
   if ('error' in parsed) {
     return json(res, 400, bokahliError('BAD_REQUEST', parsed.error, requestId));
   }
-  const { spec, messages, maxTokens, temperature, topP, stream, pinnedModelId } = parsed;
+  const { spec, messages, maxTokens, temperature, topP, topK, seed, requestedSampler, stream, pinnedModelId } = parsed;
 
   const promptText = messages.map((m) => m.content).join('\n');
   const estimated = estimateTokens(promptText);
@@ -291,6 +327,14 @@ async function handleChat(
       queueDepth: deps.queue.depth,
       estimatedPromptTokens: estimated,
       requestedMaxTokens: maxTokens,
+      qualificationFacts: (artifact, at) =>
+        deps.facts.collect(
+          artifact,
+          at.attested,
+          at.build,
+          at.servedContextTokens,
+          at.totalSlots,
+        ),
     };
     const decision = await route(spec, ctx);
     let outcome: RouteOutcome = decision.outcome;
@@ -335,13 +379,15 @@ async function handleChat(
     if (stream) {
       await streamChat(deps, res, {
         requestId, receivedAt, t0, admission, spec, outcome, served, artifact,
-        messages, maxTokens, temperature, topP, routeMs: decision.routeMs,
+        messages, maxTokens, temperature, topP, topK, seed, requestedSampler,
+        routeMs: decision.routeMs,
         gpu: gpuState.snapshot, dialect, signal: ac.signal,
       });
     } else {
       await bufferChat(deps, res, {
         requestId, receivedAt, t0, admission, spec, outcome, served, artifact,
-        messages, maxTokens, temperature, topP, routeMs: decision.routeMs,
+        messages, maxTokens, temperature, topP, topK, seed, requestedSampler,
+        routeMs: decision.routeMs,
         gpu: gpuState.snapshot, dialect, signal: ac.signal,
       });
     }
@@ -363,6 +409,10 @@ interface ExecArgs {
   maxTokens: number;
   temperature: number | undefined;
   topP: number | undefined;
+  topK: number | undefined;
+  seed: number | undefined;
+  /** Exactly what the client asked for, before any default filled a gap. */
+  requestedSampler: SamplerConfig;
   routeMs: number;
   gpu: GpuSnapshot | null;
   dialect: Dialect;
@@ -398,7 +448,14 @@ async function streamChat(deps: AppDeps, res: ServerResponse, a: ExecArgs): Prom
   try {
     for await (const ev of deps.backend.chatStream(
       a.artifact.runtimeAlias,
-      { messages: a.messages, maxTokens: a.maxTokens, temperature: a.temperature, topP: a.topP },
+      {
+        messages: a.messages, maxTokens: a.maxTokens,
+        temperature: a.temperature, topP: a.topP,
+        // Spread, not assigned: an explicit `undefined` property would still
+        // be an own property and would change the request body shape.
+        ...(a.topK !== undefined ? { topK: a.topK } : {}),
+        ...(a.seed !== undefined ? { seed: a.seed } : {}),
+      },
       a.signal,
     )) {
       if (ev.type === 'delta') {
@@ -437,7 +494,7 @@ async function streamChat(deps: AppDeps, res: ServerResponse, a: ExecArgs): Prom
       partialChars: text.length,
       message: (err as Error).message,
     });
-    const telemetry = buildTelemetry(a, {
+    const telemetry = await buildTelemetry(deps, a, {
       firstTokenAt, promptTokens, completionTokens, promptTps, completionTps,
     });
     if (a.dialect === 'openai') {
@@ -464,7 +521,7 @@ async function streamChat(deps: AppDeps, res: ServerResponse, a: ExecArgs): Prom
     return;
   }
 
-  const telemetry = buildTelemetry(a, {
+  const telemetry = await buildTelemetry(deps, a, {
     firstTokenAt, promptTokens, completionTokens, promptTps, completionTps,
   });
 
@@ -502,7 +559,14 @@ async function bufferChat(deps: AppDeps, res: ServerResponse, a: ExecArgs): Prom
   try {
     for await (const ev of deps.backend.chatStream(
       a.artifact.runtimeAlias,
-      { messages: a.messages, maxTokens: a.maxTokens, temperature: a.temperature, topP: a.topP },
+      {
+        messages: a.messages, maxTokens: a.maxTokens,
+        temperature: a.temperature, topP: a.topP,
+        // Spread, not assigned: an explicit `undefined` property would still
+        // be an own property and would change the request body shape.
+        ...(a.topK !== undefined ? { topK: a.topK } : {}),
+        ...(a.seed !== undefined ? { seed: a.seed } : {}),
+      },
       a.signal,
     )) {
       if (ev.type === 'delta') {
@@ -535,7 +599,7 @@ async function bufferChat(deps: AppDeps, res: ServerResponse, a: ExecArgs): Prom
     );
   }
 
-  const telemetry = buildTelemetry(a, {
+  const telemetry = await buildTelemetry(deps, a, {
     firstTokenAt, promptTokens, completionTokens, promptTps, completionTps,
   });
   deps.telemetry.record(telemetry, 'ROUTED');
@@ -568,7 +632,32 @@ async function bufferChat(deps: AppDeps, res: ServerResponse, a: ExecArgs): Prom
   return json(res, 200, payload);
 }
 
-function buildTelemetry(
+/**
+ * Read back the sampler the runtime actually applied.
+ *
+ * `/slots` reflects the most recent request a slot handled, so this is only
+ * attributable to *our* request when nothing else could have taken the slot in
+ * between. On a deployment that serves one request at a time that holds; above
+ * that it does not, and the honest answer is to report no effective sampler
+ * rather than one that might belong to somebody else's request.
+ *
+ * This is why the check is on `maxConcurrentRequests` rather than on observed
+ * traffic: a race that is currently not happening is still a race, and evidence
+ * gathered under one is not distinguishable afterwards from evidence gathered
+ * without one.
+ */
+async function readEffectiveSampler(deps: AppDeps, a: ExecArgs): Promise<BackendSlotParams | null> {
+  const concurrency = a.served.qualificationFacts.attestation.binding.maxConcurrentRequests;
+  if (concurrency !== null && concurrency > 1) return null;
+  try {
+    return await deps.backend.slotParams();
+  } catch {
+    return null;
+  }
+}
+
+async function buildTelemetry(
+  deps: AppDeps,
   a: ExecArgs,
   m: {
     firstTokenAt: number | null;
@@ -577,7 +666,31 @@ function buildTelemetry(
     promptTps: number | null;
     completionTps: number | null;
   },
-): RequestTelemetry {
+): Promise<RequestTelemetry> {
+  const slot = await readEffectiveSampler(deps, a);
+  const sampler = resolveSamplerFacts({
+    requested: a.requestedSampler,
+    // What actually went on the wire: the requested value where there was one,
+    // the Phase 1 default where there was not. Recording only the request would
+    // hide the defaults, and recording only the defaults would hide the ask.
+    sent: {
+      maxTokens: a.maxTokens,
+      ...(a.temperature !== undefined ? { temperature: a.temperature } : { temperature: 0.7 }),
+      ...(a.topP !== undefined ? { topP: a.topP } : { topP: 0.95 }),
+      ...(a.topK !== undefined ? { topK: a.topK } : {}),
+      ...(a.seed !== undefined ? { seed: a.seed } : {}),
+    },
+    slot,
+    unsetSeedSentinel: LLAMA_UNSET_SEED,
+  });
+  const tokenCounts = resolveTokenCounts({
+    promptTokens: m.promptTokens,
+    completionTokens: m.completionTokens,
+    // llama.cpp's `usage` block is the only source these numbers have; Bokahli
+    // never counts anything itself.
+    fromRuntimeUsage: true,
+    tokenizer: a.served.qualificationFacts.tokenizer,
+  });
   const served = a.served.servedContextTokens;
   const used = (m.promptTokens ?? 0) + (m.completionTokens ?? 0);
   return {
@@ -597,6 +710,8 @@ function buildTelemetry(
     contextUtilisation: served > 0 ? used / served : null,
     runtimeBuild: a.served.runtime.build,
     gpu: a.gpu,
+    tokenCounts,
+    sampler,
   };
 }
 
@@ -650,6 +765,25 @@ function finishNonRouted(
     completionTokens: null,
     promptTokensPerSecond: null,
     completionTokensPerSecond: null,
+    // No model ran, so there is nothing to attribute. `unknown` rather than a
+    // zero count: a refused or escalated request produced no tokens, and a zero
+    // would aggregate as a measurement of zero rather than as an absence.
+    tokenCounts: {
+      source: 'unknown',
+      promptTokens: null,
+      completionTokens: null,
+      promptTokenSource: 'unknown',
+      completionTokenSource: 'unknown',
+      tokenizer: null,
+    },
+    sampler: {
+      requested: {},
+      sent: {},
+      effective: null,
+      effectiveSource: 'unavailable',
+      seedSupport: 'not_requested',
+      deterministicOutputGuaranteed: false,
+    },
     servedContextTokens: null,
     contextUtilisation: null,
     runtimeBuild: null,
@@ -690,8 +824,82 @@ interface ParsedChat {
   maxTokens: number;
   temperature: number | undefined;
   topP: number | undefined;
+  topK: number | undefined;
+  seed: number | undefined;
+  /** What the client actually asked for, before defaults. Never inferred. */
+  requestedSampler: SamplerConfig;
   stream: boolean;
   pinnedModelId: string | null;
+}
+
+/**
+ * Bounds for the native `sampler` object.
+ *
+ * Every field is bounded, and out of range is a refusal rather than a clamp. A
+ * clamp silently changes what was asked for, and a response produced under
+ * settings the caller did not choose is not attributable to any configuration —
+ * which is the failure this whole phase exists to remove.
+ */
+const SAMPLER_BOUNDS = {
+  temperature: { min: 0, max: 2, integer: false },
+  topP: { min: 0, max: 1, integer: false },
+  topK: { min: 0, max: 1000, integer: true },
+  maxTokens: { min: 1, max: 32768, integer: true },
+  seed: { min: 0, max: 0xfffffffe, integer: true },
+} as const;
+
+/**
+ * Parse the native `sampler` object.
+ *
+ * Deliberately separate from the Phase 1 top-level `temperature`/`top_p`/
+ * `max_tokens` fields, which keep their original coercing behaviour untouched.
+ * That split is the compatibility guarantee: a Phase 1 client's request is
+ * parsed by exactly the code that parsed it before, and strictness applies only
+ * to a key that did not exist until now, so no existing request can change
+ * meaning.
+ *
+ * `0xFFFFFFFF` is refused as a seed because llama.cpp uses it as the sentinel
+ * for "no seed given". Accepting it would produce a request that asked for a
+ * seed and a runtime that reports none, and the resulting `seedSupport` verdict
+ * would be wrong in a way nothing downstream could detect.
+ */
+function parseSamplerObject(raw: unknown): SamplerConfig | { error: string } {
+  if (raw === undefined || raw === null) return {};
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    return { error: 'sampler must be an object' };
+  }
+  const o = raw as Record<string, unknown>;
+  const known = new Set(Object.keys(SAMPLER_BOUNDS));
+  for (const k of Object.keys(o)) {
+    // An unknown key is a refusal, not something to ignore. Ignoring it would
+    // let a caller believe it set `top_k` when it set `topk` and got defaults.
+    if (!known.has(k)) return { error: `unknown sampler field "${k}"` };
+  }
+
+  // Checked before the range test so the refusal explains *why* this
+  // particular value is excluded. "must be within [0, 4294967294]" is a true
+  // message and a useless one: it leaves the caller to discover on their own
+  // that the excluded value is the runtime's "no seed" marker.
+  if (o['seed'] === 0xffffffff) {
+    return { error: 'sampler.seed 4294967295 is the runtime sentinel for "no seed"; choose another' };
+  }
+
+  const out: Record<string, number> = {};
+  for (const [key, bound] of Object.entries(SAMPLER_BOUNDS)) {
+    const v = o[key];
+    if (v === undefined) continue;
+    if (typeof v !== 'number' || !Number.isFinite(v)) {
+      return { error: `sampler.${key} must be a finite number, not ${typeof v}` };
+    }
+    if (bound.integer && !Number.isInteger(v)) {
+      return { error: `sampler.${key} must be an integer` };
+    }
+    if (v < bound.min || v > bound.max) {
+      return { error: `sampler.${key} must be within [${bound.min}, ${bound.max}]` };
+    }
+    out[key] = v;
+  }
+  return out as SamplerConfig;
 }
 
 function parseChatRequest(
@@ -716,16 +924,44 @@ function parseChatRequest(
     messages.push({ role, content });
   }
 
-  const maxTokens = clampInt(body['max_tokens'] ?? body['maxTokens'], 512, 1, 32768);
-  const temperature = optNumber(body['temperature']);
-  const topP = optNumber(body['top_p'] ?? body['topP']);
+  // Phase 1 parsing, byte for byte. Do not tighten: a client that has been
+  // sending `temperature: "0.7"` since Phase 1 must keep getting 0.7.
+  const legacyMaxTokens = clampInt(body['max_tokens'] ?? body['maxTokens'], 512, 1, 32768);
+  const legacyTemperature = optNumber(body['temperature']);
+  const legacyTopP = optNumber(body['top_p'] ?? body['topP']);
   const stream = body['stream'] === true;
+
+  const sampler = parseSamplerObject(body['sampler']);
+  if ('error' in sampler) return { error: sampler.error };
+  const usingSampler = Object.keys(sampler).length > 0;
+
+  // Both surfaces present is a refusal, never a silent precedence rule. A
+  // caller who set `temperature` in two places has a bug, and picking one for
+  // them hides it behind a plausible number.
+  if (usingSampler) {
+    const clash: string[] = [];
+    if (sampler.temperature !== undefined && body['temperature'] !== undefined) clash.push('temperature');
+    if (sampler.topP !== undefined && (body['top_p'] ?? body['topP']) !== undefined) clash.push('top_p');
+    if (sampler.maxTokens !== undefined && (body['max_tokens'] ?? body['maxTokens']) !== undefined) {
+      clash.push('max_tokens');
+    }
+    if (clash.length > 0) {
+      return { error: `${clash.join(', ')} set both at top level and in sampler; set one` };
+    }
+  }
+
+  const maxTokens = sampler.maxTokens ?? legacyMaxTokens;
+  const temperature = sampler.temperature ?? legacyTemperature;
+  const topP = sampler.topP ?? legacyTopP;
+  const topK = sampler.topK;
+  const seed = sampler.seed;
+  const requestedSampler: SamplerConfig = sampler;
 
   if (dialect === 'native') {
     const r = body['route'];
     const spec = parseRouteSpec(r);
     if ('error' in spec) return spec;
-    return { spec: spec.spec, messages, maxTokens, temperature, topP, stream, pinnedModelId: null };
+    return { spec: spec.spec, messages, maxTokens, temperature, topP, topK, seed, requestedSampler, stream, pinnedModelId: null };
   }
 
   // OpenAI dialect. An explicit `bokahli.route` extension wins if present.
@@ -733,14 +969,14 @@ function parseChatRequest(
   if (ext && ext['route']) {
     const spec = parseRouteSpec(ext['route']);
     if ('error' in spec) return spec;
-    return { spec: spec.spec, messages, maxTokens, temperature, topP, stream, pinnedModelId: null };
+    return { spec: spec.spec, messages, maxTokens, temperature, topP, topK, seed, requestedSampler, stream, pinnedModelId: null };
   }
 
   const model = body['model'];
   if (model == null || model === '' || model === 'auto' || model === 'bokahli:auto') {
     return {
       spec: { mode: 'AUTO' },
-      messages, maxTokens, temperature, topP, stream, pinnedModelId: null,
+      messages, maxTokens, temperature, topP, topK, seed, requestedSampler, stream, pinnedModelId: null,
     };
   }
   if (typeof model !== 'string') return { error: 'model must be a string' };
@@ -752,7 +988,7 @@ function parseChatRequest(
     const digest = model.slice(at + 1);
     return {
       spec: { mode: 'EXACT', modelId: id, artifactDigest: digest },
-      messages, maxTokens, temperature, topP, stream, pinnedModelId: null,
+      messages, maxTokens, temperature, topP, topK, seed, requestedSampler, stream, pinnedModelId: null,
     };
   }
 
@@ -768,7 +1004,7 @@ function parseChatRequest(
   void deps;
   return {
     spec: { mode: 'AUTO' },
-    messages, maxTokens, temperature, topP, stream, pinnedModelId: model,
+    messages, maxTokens, temperature, topP, topK, seed, requestedSampler, stream, pinnedModelId: model,
   };
 }
 

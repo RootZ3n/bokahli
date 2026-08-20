@@ -8,6 +8,7 @@
  * one. Bokahli does not fabricate scores, rankings, or qualification claims to
  * make that decision look richer than it is.
  */
+import type { SamplerFacts, TokenCountFacts } from './attestation.js';
 import type {
   ArtifactDigest,
   CatalogEntry,
@@ -289,7 +290,24 @@ export interface RequestTelemetry {
   readonly servedContextTokens: number | null;
   readonly contextUtilisation: number | null;
   readonly runtimeBuild: string | null;
+  /**
+   * Whole-GPU telemetry: appliance information about the device, not about our
+   * process. It answers "is the box busy", never "did our backend run on the
+   * GPU" — that is `qualificationFacts.placement`, and conflating the two is
+   * what let a CPU-only backend look healthy in Phase 1.
+   */
   readonly gpu: GpuSnapshot | null;
+  /**
+   * Phase B2. Token counts with their provenance attached.
+   *
+   * `promptTokens` and `completionTokens` above are unchanged and still carry
+   * the same numbers; this says where those numbers came from. A consumer that
+   * only reads the bare counts behaves exactly as before — and is exactly the
+   * consumer this field exists to stop being the only option.
+   */
+  readonly tokenCounts: TokenCountFacts;
+  /** Phase B2. Requested, sent, and runtime-confirmed sampler settings. */
+  readonly sampler: SamplerFacts;
 }
 
 export interface GpuSnapshot {

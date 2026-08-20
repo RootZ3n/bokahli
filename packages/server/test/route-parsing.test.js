@@ -15,6 +15,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { AdmissionQueue, LlamaBackend } from '@bokahli/runtime';
+import { unavailableFacts } from '../dist/facts.js';
 import { createHandler } from '../dist/http.js';
 import { QualificationGate } from '../dist/qualification.js';
 
@@ -94,6 +95,9 @@ before(async () => {
       log() {}, record() {}, recordAuthFailure() {}, logPromptBody() {},
       summary: () => ({}), recent: () => [],
     },
+    // Provenance facts get their own suite; here they only have to exist so
+    // the routing path can complete.
+    facts: { collect: async (a) => unavailableFacts(a) },
     startedAt: new Date().toISOString(),
   };
   api = createServer(createHandler(deps));

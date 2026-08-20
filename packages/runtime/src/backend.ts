@@ -8,14 +8,50 @@ interface BackendProps {
   model_alias?: string;
   model_ftype?: string;
   total_slots?: number;
-  default_generation_settings?: { n_ctx?: number };
+  default_generation_settings?: { n_ctx?: number; params?: Record<string, unknown> };
   modalities?: { vision?: boolean; audio?: boolean; video?: boolean };
+  /** The chat template the runtime holds for this model, verbatim. */
+  chat_template?: string;
+}
+
+/**
+ * `/v1/models` meta, which carries facts `/props` does not.
+ *
+ * `n_vocab` is the one that matters: comparing it against the token count in
+ * the artifact Bokahli verified is what binds a tokenizer identity to the model
+ * actually loaded, rather than to a file with a matching name.
+ */
+interface BackendModelMeta {
+  readonly vocabType: number | null;
+  readonly vocabSize: number | null;
+  readonly contextTrain: number | null;
+  readonly paramCount: number | null;
+}
+
+/**
+ * Live slot parameters — what the runtime says it used, not what we asked for.
+ *
+ * This is the only channel through which a sampler setting becomes an
+ * observation. `/props` reports process defaults; a slot reports the values
+ * that were actually in force. On this deployment the two disagree about the
+ * chat format and the reasoning format, which is precisely why the requested
+ * and effective records are kept apart.
+ */
+export interface BackendSlotParams {
+  readonly seed: number | null;
+  readonly temperature: number | null;
+  readonly topP: number | null;
+  readonly topK: number | null;
+  readonly maxTokens: number | null;
+  readonly chatFormat: string | null;
+  readonly reasoningFormat: string | null;
 }
 
 export interface BackendSlot {
   readonly id: number;
   readonly n_ctx: number;
   readonly is_processing: boolean;
+  readonly params?: Record<string, unknown>;
 }
 
 export interface Attestation {
@@ -50,6 +86,14 @@ export interface ChatParams {
   readonly maxTokens?: number | undefined;
   readonly temperature?: number | undefined;
   readonly topP?: number | undefined;
+  /**
+   * Added in Phase B2. Both are omitted from the request entirely when
+   * undefined, so a caller that sets neither produces byte-identical request
+   * bodies to Phase 1 — the defaults below are unchanged and no new key
+   * appears.
+   */
+  readonly topK?: number | undefined;
+  readonly seed?: number | undefined;
 }
 
 export interface StreamEvent {
@@ -121,6 +165,75 @@ export class LlamaBackend {
     if (!r.ok) return [];
     const body = (await r.json()) as BackendSlot[];
     return Array.isArray(body) ? body : [];
+  }
+
+  /**
+   * Facts `/props` omits, chiefly the loaded vocabulary size.
+   *
+   * Returns nulls rather than throwing: this is enrichment, and a backend that
+   * will not answer must degrade the provenance verdict, not fail the request.
+   */
+  async modelMeta(alias: string): Promise<BackendModelMeta> {
+    const empty: BackendModelMeta = {
+      vocabType: null, vocabSize: null, contextTrain: null, paramCount: null,
+    };
+    try {
+      const r = await this.#get('/v1/models', this.#timeoutMs);
+      if (!r.ok) return empty;
+      const body = (await r.json()) as { data?: { id?: string; meta?: Record<string, unknown> }[] };
+      const entries = Array.isArray(body.data) ? body.data : [];
+      // Match the alias when the backend serves more than one; fall back to the
+      // sole entry rather than guessing between several.
+      const hit = entries.find((e) => e.id === alias) ?? (entries.length === 1 ? entries[0] : undefined);
+      const m = hit?.meta;
+      if (!m) return empty;
+      const n = (k: string): number | null => (typeof m[k] === 'number' ? (m[k] as number) : null);
+      return {
+        vocabType: n('vocab_type'),
+        vocabSize: n('n_vocab'),
+        contextTrain: n('n_ctx_train'),
+        paramCount: n('n_params'),
+      };
+    } catch {
+      return empty;
+    }
+  }
+
+  /**
+   * Sampler and format values the runtime reports for a slot.
+   *
+   * `/slots` reflects the most recent request a slot handled. That makes it a
+   * genuine observation of what was applied and also means it is only
+   * meaningful when read close to the request it describes — which is why the
+   * caller records `observedAt` alongside, and why nothing here is treated as
+   * immutable identity unless it was confirmed.
+   */
+  async slotParams(): Promise<BackendSlotParams | null> {
+    let slots: BackendSlot[];
+    try {
+      slots = await this.slots();
+    } catch {
+      return null;
+    }
+    const params = slots[0]?.params;
+    if (!params || typeof params !== 'object') return null;
+    const num = (k: string): number | null => {
+      const v = params[k];
+      return typeof v === 'number' && Number.isFinite(v) ? v : null;
+    };
+    const str = (k: string): string | null => {
+      const v = params[k];
+      return typeof v === 'string' && v.length > 0 ? v : null;
+    };
+    return {
+      seed: num('seed'),
+      temperature: num('temperature'),
+      topP: num('top_p'),
+      topK: num('top_k'),
+      maxTokens: num('max_tokens'),
+      chatFormat: str('chat_format'),
+      reasoningFormat: str('reasoning_format'),
+    };
   }
 
   async metricsAvailable(): Promise<boolean> {
@@ -199,12 +312,17 @@ export class LlamaBackend {
     params: ChatParams,
     signal: AbortSignal,
   ): AsyncGenerator<StreamEvent> {
+    // Phase 1 defaults, unchanged. top_k and seed are spread in only when
+    // requested: adding them unconditionally would alter every existing
+    // client's request and silently change its sampling.
     const body = {
       model: alias,
       messages: params.messages,
       max_tokens: params.maxTokens ?? 512,
       temperature: params.temperature ?? 0.7,
       top_p: params.topP ?? 0.95,
+      ...(params.topK !== undefined ? { top_k: params.topK } : {}),
+      ...(params.seed !== undefined ? { seed: params.seed } : {}),
       stream: true,
       stream_options: { include_usage: true },
       timings_per_token: false,

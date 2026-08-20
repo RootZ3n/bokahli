@@ -13,6 +13,7 @@ import {
   type RouteDecision,
   type RouteOutcome,
   type RouteSpec,
+  type QualificationFacts,
   type ServedIdentity,
   type UnmetRequirement,
 } from '@bokahli/contracts';
@@ -33,6 +34,14 @@ export interface RouteContext {
   /** Approximate prompt size, used only for context-capability checks. */
   readonly estimatedPromptTokens: number;
   readonly requestedMaxTokens: number;
+  /**
+   * Phase B2 provenance facts for the artifact being routed to.
+   *
+   * Supplied by the caller rather than gathered here so routing stays a pure
+   * decision over inputs. A router that reached out to probe the GPU mid-decision
+   * would be a router whose outcome depends on the weather.
+   */
+  readonly qualificationFacts: (a: InternalArtifact, at: Attestation) => Promise<QualificationFacts>;
 }
 
 /**
@@ -229,11 +238,11 @@ async function decideExact(
     );
   }
 
-  return routed('EXACT', artifact, attestation, [assess(artifact, true, [], decision)],
+  return await routed('EXACT', artifact, attestation, [assess(artifact, true, [], decision)],
     `EXACT match on catalog identity and artifact digest, attested against the live runtime ` +
     `(build ${attestation.build}).` +
     (taskClass ? ` Qualification for "${taskClass}": ${decision.reason}.` : ''),
-    taskClass ? decision : null);
+    ctx, taskClass ? decision : null);
 }
 
 // ---------------------------------------------------------------------------
@@ -305,11 +314,11 @@ async function decideProfile(
       assessments,
     );
   }
-  return routed('PROFILE', chosen, attestation, assessments,
+  return await routed('PROFILE', chosen, attestation, assessments,
     `Selected by deterministic rank over ${eligible.length} artifact(s) that satisfy every ` +
     `stated requirement. ${assessments.length - eligible.length} candidate(s) were excluded ` +
     'for unmet constraints.',
-    wantsQualification ? (decisions.get(chosen.modelId) ?? null) : null);
+    ctx, wantsQualification ? (decisions.get(chosen.modelId) ?? null) : null);
 }
 
 function evaluateProfile(
@@ -482,8 +491,8 @@ async function decideAuto(
             'asserts nothing about fitness. It exists so catalog order cannot change the answer.'
           : 'Ordering comes from imported measurements, never from a score Bokahli invented.');
 
-  return routed('AUTO', chosen, attestation, assessments, rationale,
-    requireQualified || taskClass ? (decisions.get(chosen.modelId) ?? null) : null);
+  return await routed('AUTO', chosen, attestation, assessments, rationale,
+    ctx, requireQualified || taskClass ? (decisions.get(chosen.modelId) ?? null) : null);
 }
 
 // ---------------------------------------------------------------------------
@@ -539,36 +548,45 @@ function pickBest(
   return chosen ?? (eligible[0] as InternalArtifact);
 }
 
-function servedIdentityOf(a: InternalArtifact, at: Attestation): ServedIdentity {
+function servedIdentityOf(
+  a: InternalArtifact,
+  at: Attestation,
+  facts: QualificationFacts,
+): ServedIdentity {
   return {
     modelId: a.modelId,
     digest: a.digest,
     runtime: {
       engine: 'llama.cpp',
       build: at.build ?? 'unknown',
-      executableDigest: null,
-      cuda: null,
-      driver: null,
+      // Populated from the same observation the facts carry, so the summary
+      // field and the detailed one can never disagree. Both were hardcoded
+      // null before Phase B2.
+      executableDigest: facts.runtime.imageDigest,
+      cuda: facts.runtime.processCudaRuntime,
+      driver: facts.runtime.driverVersion,
     },
     servedContextTokens: at.servedContextTokens ?? a.operational.servedContextTokens,
     qualification: a.qualification,
     attested: at.attested,
     attestationMethod: at.attested ? 'backend-props-match' : 'unverified',
+    qualificationFacts: facts,
   };
 }
 
-function routed(
+async function routed(
   mode: RouteDecision['mode'],
   a: InternalArtifact,
   at: Attestation,
   considered: readonly CandidateAssessment[],
   rationale: string,
+  ctx: RouteContext,
   qualification: QualificationDecision | null = null,
-): RouteDecision {
+): Promise<RouteDecision> {
   return {
     kind: 'ROUTED',
     mode,
-    selected: servedIdentityOf(a, at),
+    selected: servedIdentityOf(a, at, await ctx.qualificationFacts(a, at)),
     considered,
     rationale,
     qualification,

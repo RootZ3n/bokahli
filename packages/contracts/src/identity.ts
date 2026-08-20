@@ -7,6 +7,11 @@
  * implementation detail and must never cross the Bokahli API boundary.
  */
 
+import type {
+  BackendInstanceIdentity, DevicePlacement, QualificationAttestation,
+  RuntimeFacts, TemplateFacts, TokenizerIdentity,
+} from './attestation.js';
+
 /** Stable, public, path-free model identity. Example: "qwen3.5-35b-a3b.q2_k". */
 export type ModelId = string;
 
@@ -100,6 +105,25 @@ export interface CatalogEntry {
   };
 }
 
+/**
+ * The operational facts a qualification authority needs, with their provenance.
+ *
+ * Added in Phase B2 and required, not optional. Optional would have meant the
+ * server could forget to populate it and nothing would notice until an export
+ * failed months later; required means the type system asks the question at
+ * every construction site — of which there is exactly one.
+ */
+export interface QualificationFacts {
+  readonly contractVersion: 'bokahli.qualification-telemetry.v1';
+  readonly runtime: RuntimeFacts;
+  /** Null when tokenizer identity could not be established at all. */
+  readonly tokenizer: TokenizerIdentity | null;
+  readonly template: TemplateFacts;
+  readonly backendInstance: BackendInstanceIdentity;
+  readonly placement: DevicePlacement;
+  readonly attestation: QualificationAttestation;
+}
+
 /** What was actually served, attested by Bokahli against the live backend. */
 export interface ServedIdentity {
   readonly modelId: ModelId;
@@ -110,13 +134,31 @@ export interface ServedIdentity {
   /** True only if the live backend was verified to be serving this exact artifact. */
   readonly attested: boolean;
   readonly attestationMethod: 'backend-props-match' | 'unverified';
+  /** Phase B2. Tokenizer, template, sampler, instance and placement provenance. */
+  readonly qualificationFacts: QualificationFacts;
 }
 
 export interface RuntimeIdentity {
   readonly engine: 'llama.cpp';
   /** Pinned build, e.g. "b10505-ee4c505a4". */
   readonly build: string;
+  /**
+   * Digest of the serving image.
+   *
+   * Composite over the executable and the build tree's shared objects, because
+   * `llama-server` on this host is a 12 KB stub and the CUDA backend that does
+   * the work is a separate 44 MB object — a digest of the stub alone would
+   * survive a full rebuild and prove nothing while looking like proof.
+   *
+   * Populated in Phase B2. Was hardcoded null before, which is why the field
+   * existed in the type and never in fact.
+   */
   readonly executableDigest: ArtifactDigest | null;
+  /**
+   * CUDA runtime the serving process has loaded — not the version the driver
+   * advertises it could support. Those are different facts and this is the one
+   * that describes the inference. See `RuntimeFacts` for both.
+   */
   readonly cuda: string | null;
   readonly driver: string | null;
 }

@@ -2,3 +2,8 @@ export * from './backend.js';
 export * from './discovery.js';
 export * from './gpu.js';
 export * from './queue.js';
+export * from './gguf.js';
+export * from './instance.js';
+export * from './placement.js';
+export * from './hostfacts.js';
+export * from './facts.js';

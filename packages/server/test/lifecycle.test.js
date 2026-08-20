@@ -14,6 +14,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { LlamaBackend } from '@bokahli/runtime';
+import { unavailableFacts } from '../dist/facts.js';
 import { route } from '../dist/router.js';
 
 const PINNED_BUILD = 'b10505-testpin';
@@ -119,6 +120,8 @@ function ctxFor(port) {
     qualification: DENY_ALL_GATE,
     queueDepth: 0,
     estimatedPromptTokens: 10,
+    // Provenance facts have their own suite; routing only needs them present.
+    qualificationFacts: async (a) => unavailableFacts(a),
     requestedMaxTokens: 64,
   };
 }
@@ -252,6 +255,8 @@ test('a backend that accepts connections but never answers fails terminally, not
     qualification: DENY_ALL_GATE,
     queueDepth: 0,
     estimatedPromptTokens: 10,
+    // Provenance facts have their own suite; routing only needs them present.
+    qualificationFacts: async (a) => unavailableFacts(a),
     requestedMaxTokens: 64,
   };
 

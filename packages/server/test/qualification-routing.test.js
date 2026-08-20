@@ -17,6 +17,7 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { LlamaBackend } from '@bokahli/runtime';
 import { QualificationStore } from '@bokahli/qualification';
+import { unavailableFacts } from '../dist/facts.js';
 import { QualificationGate } from '../dist/qualification.js';
 import { route } from '../dist/router.js';
 import {
@@ -140,6 +141,8 @@ function ctx(port, gate, catalog) {
     qualification: gate,
     queueDepth: 0,
     estimatedPromptTokens: 10,
+    // Provenance facts have their own suite; routing only needs them present.
+    qualificationFacts: async (a) => unavailableFacts(a),
     requestedMaxTokens: 64,
   };
 }

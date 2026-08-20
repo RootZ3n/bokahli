@@ -1,0 +1,211 @@
+/**
+ * Does Bokahli's new telemetry actually unblock Luak?
+ *
+ * This is the only test that can answer the question the phase was opened for,
+ * and it answers it by running Luak's *real* exporter — the one at
+ * `feature/local-qualification-v1`, commit 50bd71f — against records built from
+ * Bokahli's actual response shape. A lookalike schema kept in sync by hand
+ * would prove that two files agree with each other, which is not the claim.
+ *
+ * The six-attempt pilot on 2026-08-20 refused with seven refusals: six
+ * `TOKEN_COUNTS_NOT_MEASURED`, one per attempt, and one
+ * `CONTEXT_TIER_NOT_MEASURED` on the identity. Both had the same root cause —
+ * Bokahli returned counts without naming a tokenizer. The assertions below are
+ * that a fully proven Bokahli response clears all seven, and that removing any
+ * single proof puts them back.
+ *
+ * Skips rather than fails when Luak is not checked out beside this repo. A
+ * cross-repo test that hard-fails on a missing sibling stops being a signal and
+ * becomes noise someone routes around.
+ */
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { resolveTokenCounts, resolveTokenizerIdentity } from '@bokahli/runtime';
+
+const LUAK = join(homedir(), 'repos/luak/dist/core/local');
+const AVAILABLE = existsSync(join(LUAK, 'bokahli-export.js'));
+
+const NOW = () => new Date('2026-08-20T12:00:00.000Z');
+
+/** Exactly what Bokahli reports when every proof is present. */
+const PROVEN = {
+  artifactTokenizer: {
+    family: 'gpt2',
+    pretokenizer: 'qwen35',
+    vocabSize: 248320,
+    metadataDigest: `sha256:${'1f'.repeat(32)}`,
+    chatTemplateDigest: `sha256:${'a4'.repeat(32)}`,
+  },
+  runtimeVocabSize: 248320,
+  runtimeBuild: 'b10505-ee4c505a4',
+  artifactAttested: true,
+  now: NOW,
+};
+
+const IDENTITY = (tokenCountSource) => ({
+  identityVersion: 'local-identity-1.0.0',
+  artifact: {
+    modelId: 'qwen3.5-35b-a3b.q2-k',
+    artifactDigest: `sha256:${'49'.repeat(32)}`,
+    quantization: 'Q2_K', format: 'gguf',
+    sizeBytes: null, parameterCount: null, activeParameterCount: null,
+  },
+  runtime: { name: 'llama.cpp', build: 'b10505-ee4c505a4', binaryDigest: null, apiFlavour: 'native' },
+  promptTemplate: {
+    templateId: 'peg-native', templateDigest: `sha256:${'a4'.repeat(32)}`,
+    appliedBy: 'runtime', bosTokenId: null, eosTokenId: 248046,
+  },
+  sampler: { temperature: 0, topP: 1, topK: 20, repeatPenalty: null, seed: 7, seedHonoured: true },
+  hardware: {
+    profileId: 'mushin-rtx4070-12g', gpuModel: 'NVIDIA GeForce RTX 4070',
+    gpuMemoryMiB: 12282, gpuDriver: '595.91.07', cudaVersion: '13.2.51',
+    cpuModel: 'i7-13700K', systemMemoryMiB: 31798,
+  },
+  placement: {
+    requestedGpuLayers: 999, observedGpuLayers: null, cpuOffloadEnabled: true,
+    observedVramBytes: 2430 * 1024 * 1024, observedHostRamBytes: null, gpuConfirmed: true,
+  },
+  context: { configuredTokens: 32768, effectiveMaxTokens: 32768, tierLabel: 'control', tokenCountSource },
+  concurrency: { slots: 1, maxConcurrentRequests: 1, batchSize: null },
+  fixtureSuiteId: 'local-test-log-triage',
+  fixtureSuiteVersion: '1.0.0',
+  verificationRegimeVersion: 'local-regime-1.0.0',
+});
+
+/** One Luak attempt record whose token provenance comes from Bokahli's verdict. */
+function record(i, counts) {
+  return {
+    attemptId: `att_0000000${i}-0000-4000-8000-000000000000`,
+    fixtureId: i % 2 === 0 ? 'tlt-008-abstention-required' : 'tlt-009-injection-in-log',
+    suiteId: 'local-test-log-triage',
+    suiteVersion: '1.0.0',
+    split: 'evaluation',
+    applicability: 'APPLICABLE',
+    lanes: [{
+      lane: 'abstention', scorerVersion: 'local-scorers-1.0.0',
+      measurements: [{ name: 'abstention.correct', value: 1, unit: 'count', detail: '' }],
+      failureCodes: [], attribution: 'MODEL', notes: [],
+    }],
+    contextPosition: null,
+    contextTier: 'control',
+    promptTokens: counts.promptTokens,
+    completionTokens: counts.completionTokens,
+    // The field the whole phase exists to populate.
+    tokenCountSource: counts.source,
+    timeToFirstTokenMs: 170,
+    decodeTokensPerSecond: 64,
+    wallTimeMs: 1200,
+    seed: 7,
+  };
+}
+
+async function runExport(tokenizerInputs, identityTokenSource) {
+  const { exportBokahliBundle } = await import(pathToFileURL(join(LUAK, 'bokahli-export.js')).href);
+  const { scoreAttempt } = await import(pathToFileURL(join(LUAK, 'regime.js')).href);
+
+  const tokenizer = resolveTokenizerIdentity(tokenizerInputs);
+  const counts = resolveTokenCounts({
+    promptTokens: 189, completionTokens: 68, fromRuntimeUsage: true, tokenizer,
+  });
+  const records = [0, 1, 2, 3, 4, 5].map((i) => record(i, counts));
+
+  return {
+    counts,
+    result: exportBokahliBundle({
+      taskClass: 'test_log_triage',
+      taskClassContractVersion: '1.0.0',
+      identity: IDENTITY(identityTokenSource),
+      records,
+      scored: records.map(scoreAttempt),
+      luakBundleIds: records.map((r) => r.attemptId),
+      luakBundleHashes: [],
+      luakSignatureStatus: null,
+      luakRepoCommit: null,
+      requireEvaluationSplit: true,
+      now: NOW(),
+    }),
+  };
+}
+
+const codes = (r) => [...new Set(r.refusals.map((x) => x.code))].sort();
+
+test('a fully proven Bokahli response permits qualification export', async (t) => {
+  if (!AVAILABLE) return t.skip('Luak is not checked out at ~/repos/luak');
+
+  const { counts, result } = await runExport(PROVEN, 'runtime_tokenizer');
+  assert.equal(counts.source, 'runtime_tokenizer');
+  assert.equal(
+    result.ok, true,
+    `export still refused: ${JSON.stringify(result.refusals ?? [], null, 1)}`,
+  );
+  assert.ok(result.bundle.contentHash);
+  assert.equal(result.bundle.attempts.length, 6);
+});
+
+test('the exported bundle still claims no Bokahli trust', async (t) => {
+  if (!AVAILABLE) return t.skip('Luak is not checked out at ~/repos/luak');
+  const { result } = await runExport(PROVEN, 'runtime_tokenizer');
+  const json = JSON.stringify(result.bundle);
+  // Bokahli grants trust by an operator pinning a digest, never by a bundle
+  // saying it is trusted. Populating telemetry must not have changed that.
+  assert.equal(/"importTrust"/.test(json), false);
+  assert.equal(/"verifiedByBokahli"\s*:\s*true/.test(json), false);
+});
+
+test('removing the tokenizer digest restores exactly the pilot refusal', async (t) => {
+  if (!AVAILABLE) return t.skip('Luak is not checked out at ~/repos/luak');
+
+  const { counts, result } = await runExport(
+    { ...PROVEN, artifactTokenizer: { ...PROVEN.artifactTokenizer, metadataDigest: null } },
+    'runtime_reported_unknown_tokenizer',
+  );
+  assert.equal(counts.source, 'runtime_reported_unknown_tokenizer');
+  assert.equal(result.ok, false);
+  assert.deepEqual(codes(result), ['CONTEXT_TIER_NOT_MEASURED', 'TOKEN_COUNTS_NOT_MEASURED']);
+  assert.equal(
+    result.refusals.filter((r) => r.code === 'TOKEN_COUNTS_NOT_MEASURED').length, 6,
+    'one per attempt, exactly as the 2026-08-20 pilot produced',
+  );
+});
+
+test('an unattested backend blocks export even with a tokenizer digest present', async (t) => {
+  if (!AVAILABLE) return t.skip('Luak is not checked out at ~/repos/luak');
+  const { counts, result } = await runExport(
+    { ...PROVEN, artifactAttested: false },
+    'runtime_reported_unknown_tokenizer',
+  );
+  assert.equal(counts.source, 'runtime_reported_unknown_tokenizer');
+  assert.equal(result.ok, false);
+});
+
+test('a vocabulary mismatch blocks export: the tokenizer is not bound to the loaded model', async (t) => {
+  if (!AVAILABLE) return t.skip('Luak is not checked out at ~/repos/luak');
+  const { counts, result } = await runExport(
+    { ...PROVEN, runtimeVocabSize: 32000 },
+    'runtime_reported_unknown_tokenizer',
+  );
+  assert.equal(counts.source, 'runtime_reported_unknown_tokenizer');
+  assert.equal(result.ok, false);
+});
+
+test('a backend reporting no vocabulary size blocks export', async (t) => {
+  if (!AVAILABLE) return t.skip('Luak is not checked out at ~/repos/luak');
+  const { counts, result } = await runExport(
+    { ...PROVEN, runtimeVocabSize: null },
+    'runtime_reported_unknown_tokenizer',
+  );
+  assert.equal(counts.source, 'runtime_reported_unknown_tokenizer');
+  assert.equal(result.ok, false);
+});
+
+test("Luak's exportable set is still exactly one value", async (t) => {
+  if (!AVAILABLE) return t.skip('Luak is not checked out at ~/repos/luak');
+  const { EXPORTABLE_TOKEN_SOURCES } = await import(pathToFileURL(join(LUAK, 'regime.js')).href);
+  // If this ever grows, Bokahli's proof requirements have been relaxed on the
+  // other side of the boundary and this repo needs to know.
+  assert.deepEqual([...EXPORTABLE_TOKEN_SOURCES], ['runtime_tokenizer']);
+});

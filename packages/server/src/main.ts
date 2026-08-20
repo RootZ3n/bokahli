@@ -2,6 +2,7 @@ import { createServer, type Server } from 'node:http';
 import { Catalog } from '@bokahli/catalog';
 import { AdmissionQueue, findBackendPids, GpuMonitor, LlamaBackend } from '@bokahli/runtime';
 import { loadConfig, loadOrCreateToken } from './config.js';
+import { QualificationFactsProvider } from './facts.js';
 import { QualificationGate } from './qualification.js';
 import { createHandler, type AppDeps } from './http.js';
 import { Telemetry } from './telemetry.js';
@@ -104,8 +105,17 @@ async function main(): Promise<void> {
       'qualification-required request escalates.',
   });
 
+  // Provenance probes. The executable is normally located from the running
+  // process's own argv; the env var is a fallback for a deployment where that
+  // cannot be read, and is a path, so it never reaches a response.
+  const facts = new QualificationFactsProvider({
+    backend,
+    runtimeExecutablePathFallback: process.env['BOKAHLI_RUNTIME_EXECUTABLE'] ?? null,
+    resolveBackendPids: resolver,
+  });
+
   const deps: AppDeps = {
-    config, token, catalog, backend, qualification, queue, gpu, telemetry, startedAt,
+    config, token, catalog, backend, qualification, queue, gpu, telemetry, facts, startedAt,
   };
   const handler = createHandler(deps);
   const servers: Server[] = [];

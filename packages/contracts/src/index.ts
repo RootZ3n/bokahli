@@ -1,4 +1,5 @@
 export * from './identity.js';
+export * from './attestation.js';
 export * from './routing.js';
 export * from './luak.js';
 export * from './qualification.js';
