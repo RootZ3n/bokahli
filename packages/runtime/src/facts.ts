@@ -16,6 +16,7 @@
  */
 import type {
   ArtifactDigest,
+  RuntimeTokenizerProof,
   DevicePlacement,
   SamplerConfig,
   SamplerFacts,
@@ -37,6 +38,10 @@ export interface TokenizerInputs {
   readonly runtimeBuild: string | null;
   /** Whether the backend was attested to be serving this exact artifact. */
   readonly artifactAttested: boolean;
+  /** The instance the facts are being assembled for. */
+  readonly backendInstanceId?: string | null;
+  /** The behavioural binding. Absent means no probe was taken. */
+  readonly runtimeTokenizerProof?: RuntimeTokenizerProof | null;
   readonly now: () => Date;
 }
 
@@ -62,6 +67,8 @@ export function resolveTokenizerIdentity(inputs: TokenizerInputs): TokenizerIden
     fileVocab !== null && inputs.runtimeVocabSize !== null
       ? fileVocab === inputs.runtimeVocabSize
       : null;
+  const proof = inputs.runtimeTokenizerProof ?? null;
+  const instanceId = inputs.backendInstanceId ?? null;
 
   const reasons: string[] = [];
   if (!inputs.artifactAttested) {
@@ -69,17 +76,50 @@ export function resolveTokenizerIdentity(inputs: TokenizerInputs): TokenizerIden
   }
   if (t === null) {
     reasons.push('artifact tokenizer metadata was not read');
-  } else if (t.metadataDigest === null) {
-    reasons.push('artifact carries no tokenizer metadata to hash');
+  } else {
+    if (t.metadataDigest === null) reasons.push('artifact carries no tokenizer metadata to hash');
+    if (t.family === null) reasons.push('artifact declares no tokenizer family');
+    // Without a named pre-tokenizer the segmentation rule is unnamed, and two
+    // artifacts with identical vocabularies and different pre-tokenizers are
+    // exactly the collision the content digest exists to prevent.
+    if (t.pretokenizer === null) reasons.push('artifact declares no pre-tokenizer');
   }
+
+  // Supporting evidence. A mismatch refuses; agreement is not a proof, which is
+  // why it no longer appears in the sufficiency test below.
   if (inputs.runtimeVocabSize === null) {
-    reasons.push('backend did not report a vocabulary size to bind against');
+    reasons.push('backend did not report a vocabulary size to cross-check');
   } else if (vocabMatch === false) {
     reasons.push(
       `vocabulary size mismatch: artifact has ${String(fileVocab)}, ` +
         `backend reports ${String(inputs.runtimeVocabSize)}`,
     );
   }
+
+  // The binding. Everything above describes a file; only this describes the
+  // process that is serving.
+  if (proof === null) {
+    reasons.push(
+      'no runtime vocabulary probe: the tokenizer the process loaded was never read, ' +
+        'so a load-time metadata override would be invisible',
+    );
+  } else if (!proof.matches) {
+    reasons.push(
+      `runtime vocabulary probe disagrees with the artifact ` +
+        `(${proof.samplesMatched}/${proof.samplesChecked} samples matched)` +
+        (proof.detail === null ? '' : `: ${proof.detail}`),
+    );
+  } else if (proof.backendInstanceId === null || instanceId === null) {
+    reasons.push('runtime vocabulary probe is not bound to a known backend instance');
+  } else if (proof.backendInstanceId !== instanceId) {
+    reasons.push(
+      'runtime vocabulary probe was taken against a different backend instance; ' +
+        'a probe describes one process and does not survive a restart',
+    );
+  }
+
+  const bound = proof !== null && proof.matches && proof.backendInstanceId !== null &&
+    instanceId !== null && proof.backendInstanceId === instanceId;
 
   return {
     provenance: 'observed',
@@ -89,22 +129,36 @@ export function resolveTokenizerIdentity(inputs: TokenizerInputs): TokenizerIden
     vocabSize: fileVocab,
     runtimeVocabSize: inputs.runtimeVocabSize,
     vocabSizeMatch: vocabMatch,
+    runtimeProof: proof,
+    // Declared in the artifact and reported; never confirmed in the runtime.
+    // Confirming it would require a second BPE implementation here, which is a
+    // second thing that can be wrong.
+    pretokenizerVerified: false,
     metadataDigest: (t?.metadataDigest ?? null) as ArtifactDigest | null,
-    // llama.cpp produces the counts in its `usage` block. Nothing else in this
-    // path tokenizes, so when we have counts at all they came from the runtime.
-    tokenizedBy: 'runtime',
+    // Derived, not asserted. llama.cpp returning integer usage fields says a
+    // count happened; it says nothing about which vocabulary produced it.
+    tokenizedBy: bound ? 'runtime' : 'unknown',
     runtimeBuild: inputs.runtimeBuild,
     unprovenReasons: reasons,
   };
 }
 
-/** True only when every precondition for a runtime-tokenizer claim holds. */
+/**
+ * True only when every precondition for a runtime-tokenizer claim holds.
+ *
+ * `vocabSizeMatch` is deliberately absent: it is checked above, where a
+ * mismatch adds a refusal reason, but agreement is not listed here because
+ * agreement is not evidence. Two tokenizers can have the same vocabulary size.
+ */
 export function tokenizerFullyProven(t: TokenizerIdentity): boolean {
   return (
     t.unprovenReasons.length === 0 &&
     t.metadataDigest !== null &&
-    t.vocabSizeMatch === true &&
-    t.tokenizedBy === 'runtime'
+    t.family !== null &&
+    t.pretokenizer !== null &&
+    t.tokenizedBy === 'runtime' &&
+    t.runtimeProof !== null &&
+    t.runtimeProof.matches
   );
 }
 
@@ -172,8 +226,27 @@ export interface TemplateInputs {
   readonly effectiveReasoningFormat: string | null;
   /** Format Bokahli asked for, when it asked. Null means it took the default. */
   readonly requestedChatFormat: string | null;
+  /**
+   * Whether the slot reading can be tied to a specific request. Null means it
+   * cannot, which is the only value the current llama.cpp API can produce.
+   */
+  readonly slotCorrelation?: { readonly backendInstanceId: string; readonly requestInstanceId: string } | null;
+  /** Reasoning format the backend was started with, when known. */
+  readonly configuredReasoningFormat?: string | null;
   readonly digestOf: (text: string) => string;
   readonly now: () => Date;
+}
+
+/**
+ * Cap a string a backend controls before it reaches a response.
+ *
+ * `/props` and `/slots` are trusted to be our own loopback backend, but a field
+ * whose length is decided elsewhere is a field that can inflate every response,
+ * and "our backend would never" is not a bound.
+ */
+const MAX_RUNTIME_LABEL = 128;
+function boundedLabel(v: string | null): string | null {
+  return v === null ? null : v.slice(0, MAX_RUNTIME_LABEL);
 }
 
 /**
@@ -198,19 +271,31 @@ export function resolveTemplateFacts(inputs: TemplateInputs): TemplateFacts {
       ? runtimeDigest === inputs.artifactTemplateDigest
       : null;
 
-  const effective: TemplateIdentity = {
+  const correlated =
+    inputs.slotCorrelation != null &&
+    inputs.slotCorrelation.backendInstanceId === inputs.slotCorrelation.requestInstanceId;
+
+  // What the backend HOLDS. Not what any request used: a client that
+  // pre-formats its own prompt bypasses templating and /props does not change,
+  // so `applied` here is null, never true.
+  const configured: TemplateIdentity = {
     provenance: 'runtime-reported',
     observedAt,
-    // llama.cpp applies the template server-side for /v1/chat/completions;
-    // Bokahli sends messages, never a rendered prompt.
     appliedBy: inputs.runtimeTemplate === null ? 'unknown' : 'runtime',
-    templateId: inputs.effectiveChatFormat,
+    templateId: boundedLabel(inputs.effectiveChatFormat),
     templateDigest: runtimeDigest as ArtifactDigest | null,
-    runtimeTemplateName: inputs.effectiveChatFormat,
-    reasoningFormat: inputs.effectiveReasoningFormat,
+    runtimeTemplateName: boundedLabel(inputs.effectiveChatFormat),
+    reasoningFormat: boundedLabel(inputs.effectiveReasoningFormat),
     matchesArtifactTemplate: matches,
-    applied: inputs.runtimeTemplate === null ? null : true,
+    applied: null,
   };
+
+  // An uncorrelated slot reading. Backend-instance scope; discarded outright
+  // when the instance it was taken against is not the one that served.
+  const effective: TemplateIdentity | null =
+    inputs.slotCorrelation != null && !correlated
+      ? null
+      : { ...configured, applied: null };
 
   const requested: TemplateIdentity | null =
     inputs.requestedChatFormat === null
@@ -228,11 +313,27 @@ export function resolveTemplateFacts(inputs: TemplateInputs): TemplateFacts {
         };
 
   const mismatch =
-    requested === null || requested.templateId === null || effective.templateId === null
+    requested === null || requested.templateId === null || effective?.templateId == null
       ? null
       : requested.templateId !== effective.templateId;
 
-  return { requested, effective, mismatch };
+  const cfgReasoning = inputs.configuredReasoningFormat ?? null;
+  const reasoningFormatOverridden =
+    cfgReasoning === null || inputs.effectiveReasoningFormat === null
+      ? null
+      : cfgReasoning !== inputs.effectiveReasoningFormat;
+
+  return {
+    requested,
+    configured,
+    effective,
+    // llama.cpp's chat response carries no slot or task id, so nothing can be
+    // confirmed for a specific request. Null is the honest value, and it is a
+    // separate field precisely so it cannot be filled by the configured one.
+    requestConfirmed: null,
+    mismatch,
+    reasoningFormatOverridden,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -243,6 +344,25 @@ export interface SamplerInputs {
   readonly requested: SamplerConfig;
   readonly sent: SamplerConfig;
   readonly slot: BackendSlotParams | null;
+  /**
+   * Whether the slot reading can be tied to this request.
+   *
+   * Null means it cannot. llama.cpp's OpenAI-compatible response returns no
+   * slot or task id, so on the pinned build this is always null and every
+   * effective fact stays at backend-instance scope.
+   */
+  readonly slotCorrelation?: { readonly backendInstanceId: string; readonly requestInstanceId: string } | null;
+  /**
+   * A handle tying this slot reading to this generation.
+   *
+   * Null on the pinned llama.cpp build: the OpenAI-compatible chat response
+   * carries no slot or task id, so nothing identifies which generation the slot
+   * we just read belongs to. The parameter exists rather than being hardcoded
+   * so the `honoured` and `overridden` states stay reachable and testable — the
+   * day the runtime returns a handle this becomes a wiring change, not a
+   * redesign, and until then the tests document what it would take.
+   */
+  readonly requestCorrelation?: { readonly slotId: number; readonly taskId: number } | null;
   /** llama.cpp's sentinel for "no seed given". Anything else is a real seed. */
   readonly unsetSeedSentinel: number;
 }
@@ -267,7 +387,14 @@ export const LLAMA_UNSET_SEED = 0xffffffff;
  * measurements meaningless while looking fine.
  */
 export function resolveSamplerFacts(inputs: SamplerInputs): SamplerFacts {
-  const slot = inputs.slot;
+  // A reading taken against another instance is not weak evidence about this
+  // one; it is evidence about a different process, and keeping it would let a
+  // restart mid-request carry the old process's configuration forward.
+  const sameInstance =
+    inputs.slotCorrelation == null ||
+    inputs.slotCorrelation.backendInstanceId === inputs.slotCorrelation.requestInstanceId;
+  const requestCorrelated = sameInstance && (inputs.requestCorrelation ?? null) !== null;
+  const slot = sameInstance ? inputs.slot : null;
   const effective: SamplerConfig | null =
     slot === null
       ? null
@@ -293,6 +420,13 @@ export function resolveSamplerFacts(inputs: SamplerInputs): SamplerFacts {
   let seedSupport: SeedSupport;
   if (inputs.sent.seed === undefined) {
     seedSupport = 'not_requested';
+  } else if (!requestCorrelated) {
+    // The decisive rule. Without a handle tying the reading to this generation,
+    // a slot showing our seed is a coincidence with good odds — the slot may
+    // have been read before the request started, after it reset, or once the
+    // next queued request had already claimed it. `requested` is where an
+    // unconfirmable seed stops.
+    seedSupport = 'requested';
   } else if (reportedSeed === null) {
     seedSupport = 'requested';
   } else if (reportedSeed === inputs.sent.seed) {
@@ -305,7 +439,8 @@ export function resolveSamplerFacts(inputs: SamplerInputs): SamplerFacts {
     requested: inputs.requested,
     sent: inputs.sent,
     effective,
-    effectiveSource: slot === null ? 'unavailable' : 'runtime-slots',
+    effectiveSource: slot === null ? 'unavailable' : 'runtime-slots-uncorrelated',
+    effectiveScope: requestCorrelated ? 'request' : 'backend-instance',
     seedSupport,
     deterministicOutputGuaranteed: false,
   };

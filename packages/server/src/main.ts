@@ -112,6 +112,16 @@ async function main(): Promise<void> {
     backend,
     runtimeExecutablePathFallback: process.env['BOKAHLI_RUNTIME_EXECUTABLE'] ?? null,
     resolveBackendPids: resolver,
+    // The token table, read once per artifact from the file whose digest was
+    // verified. Held only long enough to run the probe.
+    artifactTokens: async (a) => {
+      try {
+        const { readGgufTokenTable } = await import('@bokahli/runtime');
+        return await readGgufTokenTable(a.artifactPath);
+      } catch {
+        return null;
+      }
+    },
   });
 
   const deps: AppDeps = {

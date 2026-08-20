@@ -56,22 +56,62 @@ export type TokenCountSource =
   | 'unknown';
 
 /**
+ * What the runtime itself said about the tokenizer it loaded.
+ *
+ * This exists because the audit of 4d8ced6 broke the previous proof. That
+ * version established tokenizer identity entirely from the artifact's bytes and
+ * bound it to the runtime with one number: vocabulary size. Equal sizes are
+ * *consistent* with the runtime having loaded the file we hashed. They are not
+ * evidence of it, and llama.cpp's `--override-kv` makes the gap concrete —
+ * it replaces GGUF metadata at load time without touching the file, so the
+ * digest matches, the path matches, attestation passes, the size is unchanged,
+ * and the tokenizer actually splitting text is not the one we described.
+ *
+ * So the binding is now behavioural. Bokahli asks the running server to
+ * detokenize a fixed set of ids and compares what comes back, byte for byte,
+ * against the token table in the artifact it verified. That reads the
+ * vocabulary the process actually loaded rather than the one the file declares.
+ */
+export interface RuntimeTokenizerProof {
+  readonly method: 'runtime-vocab-probe';
+  /** Whether every sampled id round-tripped to the artifact's own token text. */
+  readonly matches: boolean;
+  readonly samplesChecked: number;
+  readonly samplesMatched: number;
+  /**
+   * sha256 of the token ids the runtime produced for a fixed probe string.
+   *
+   * Not a proof that the pre-tokenizer equals the one the file declares —
+   * confirming that would need a byte-level BPE implementation here, and a
+   * second implementation of a tokenizer is a second thing that can be wrong.
+   * What it does give is comparability: any change in how this deployment
+   * segments text shows up as an identity change between runs, which is the
+   * property qualification evidence actually depends on.
+   */
+  readonly segmentationDigest: string | null;
+  /** The backend instance the probe ran against. A probe is about one process. */
+  readonly backendInstanceId: string | null;
+  readonly observedAt: string;
+  readonly detail: string | null;
+}
+
+/**
  * Identity of the tokenizer that produced the counts.
  *
- * `runtime_tokenizer` is claimable only when all three hold, and each is a
- * different kind of proof:
+ * `runtime_tokenizer` is claimable only when every one of these holds:
  *
- *   1. the counts came from the serving process (llama.cpp's own `usage`),
- *   2. the tokenizer is identified by content, not by name — `metadataDigest`
- *      is a hash of the vocabulary itself, so two builds that call themselves
- *      "qwen" and tokenize differently cannot collide,
- *   3. that content is bound to the artifact actually loaded — `vocabSizeMatch`
- *      compares the token count in the verified file against the `n_vocab` the
- *      running server reports.
+ *   1. the backend was attested to be serving this artifact,
+ *   2. the tokenizer is identified by content — `metadataDigest` hashes the
+ *      vocabulary, merges, token types, pre-tokenizer and special ids, so two
+ *      builds that both call themselves "gpt2" and split differently cannot
+ *      collide,
+ *   3. the file's declared pre-tokenizer is present, since without it the
+ *      segmentation rule is unnamed,
+ *   4. a `runtimeProof` matched, and
+ *   5. that proof was taken against *this* backend instance.
  *
- * Miss any one and the honest answer is `runtime_reported_unknown_tokenizer`.
- * A model family read off a filename is not tokenizer identity; two Qwen
- * quantisations can ship different pre-tokenizers.
+ * `vocabSizeMatch` is retained as supporting evidence and is not sufficient on
+ * its own; a disagreement still refuses, but agreement no longer proves.
  */
 export interface TokenizerIdentity extends Observed {
   /** `tokenizer.ggml.model` from the artifact, e.g. "gpt2" for byte-level BPE. */
@@ -82,8 +122,22 @@ export interface TokenizerIdentity extends Observed {
   readonly vocabSize: number | null;
   /** Vocabulary size the running backend reports for the loaded model. */
   readonly runtimeVocabSize: number | null;
-  /** Whether those two agree. Null when either is unavailable. */
+  /**
+   * Whether those two agree. Supporting evidence only.
+   *
+   * Disagreement refuses; agreement proves nothing, because two different
+   * tokenizers can have identical vocabulary sizes and one of them is exactly
+   * what a substitution would look like.
+   */
   readonly vocabSizeMatch: boolean | null;
+  /** The behavioural binding. Null when no probe was taken. */
+  readonly runtimeProof: RuntimeTokenizerProof | null;
+  /**
+   * Whether the pre-tokenizer the artifact declares was confirmed in the
+   * runtime. Always false today: see `RuntimeTokenizerProof.segmentationDigest`
+   * for why confirming it is not attempted.
+   */
+  readonly pretokenizerVerified: boolean;
   /**
    * sha256 over the tokenizer-defining metadata: family, pre-tokenizer, the
    * full token list, the merge list, token types, and the special token ids.
@@ -91,7 +145,13 @@ export interface TokenizerIdentity extends Observed {
    * that would alter how text is split.
    */
   readonly metadataDigest: ArtifactDigest | null;
-  /** Which component tokenized the request. */
+  /**
+   * Which component tokenized.
+   *
+   * Derived from `runtimeProof`, never asserted. It was a hardcoded literal in
+   * 4d8ced6, which made the condition that checked it unfalsifiable — a test
+   * that cannot fail is not a check.
+   */
   readonly tokenizedBy: 'runtime' | 'unknown';
   /** Build of the process that did the tokenizing. */
   readonly runtimeBuild: string | null;
@@ -155,14 +215,39 @@ export interface TemplateIdentity extends Observed {
   readonly applied: boolean | null;
 }
 
-/** Requested and effective template, never collapsed. */
+/**
+ * Four template tiers, kept apart because they are four different claims.
+ *
+ * 4d8ced6 had two and set `applied: true` whenever the runtime reported a
+ * template at all. That is a configuration fact wearing an application claim: a
+ * client that pre-formats its own prompt bypasses templating entirely and
+ * `/props` does not change, so "the runtime holds this template" and "this
+ * template was applied to this request" are independent.
+ */
 export interface TemplateFacts {
   /** What Bokahli asked for. Null when it asked for nothing and took the default. */
   readonly requested: TemplateIdentity | null;
-  /** What the runtime reports it used. */
+  /** What the backend is configured with, from `/props`. Not per-request. */
+  readonly configured: TemplateIdentity | null;
+  /**
+   * What an uncorrelated `/slots` reading reports. Backend-instance scope, for
+   * the same reason the sampler's effective reading is.
+   */
   readonly effective: TemplateIdentity | null;
-  /** True only when both are known and their digests differ. */
+  /**
+   * What was confirmed for *this* request. Always null on the current
+   * llama.cpp API, which offers no correlation handle.
+   */
+  readonly requestConfirmed: TemplateIdentity | null;
+  /** True only when a requested and an effective identity are known and differ. */
   readonly mismatch: boolean | null;
+  /**
+   * The runtime is applying a reasoning format other than the one it was
+   * started with. Observed on this deployment: the unit passes `--reasoning off`
+   * and a live slot reports `deepseek`. Kept as its own flag so it cannot be
+   * flattened into the template-matches verdict, which is separately true.
+   */
+  readonly reasoningFormatOverridden: boolean | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -189,11 +274,19 @@ export interface SamplerConfig {
 export type SeedSupport =
   /** The runtime has no seed parameter Bokahli can use. */
   | 'unavailable'
-  /** Bokahli sent one. Nothing has confirmed it was applied. */
+  /**
+   * Bokahli sent one and nothing authoritative confirmed it for this request.
+   *
+   * This is the honest terminal state on the current llama.cpp API. `honoured`
+   * needs an echo that is provably about *this* generation, and no field in the
+   * chat response identifies the slot or task that served it. An uncorrelated
+   * `/slots` reading that happens to show the same number is a coincidence with
+   * good odds, not a confirmation.
+   */
   | 'requested'
-  /** The runtime echoed back the seed Bokahli sent. */
+  /** The runtime echoed this request's seed, correlated to this generation. */
   | 'honoured'
-  /** The runtime echoed a different seed than the one sent. */
+  /** The runtime echoed a different seed for this generation. */
   | 'overridden'
   /** No seed was requested. */
   | 'not_requested';
@@ -211,8 +304,24 @@ export type SeedSupport =
 export interface SamplerFacts {
   readonly requested: SamplerConfig;
   readonly sent: SamplerConfig;
+  /**
+   * What the runtime reports it used — for the *backend*, not for this request.
+   *
+   * `/slots` reports whatever the slot last held, and llama.cpp's
+   * OpenAI-compatible response returns no slot or task id, so there is no handle
+   * to correlate an observation to a generation. A one-slot configuration
+   * narrows the window; it does not create a correlation, and 4d8ced6 treated
+   * narrowing as correlating.
+   */
   readonly effective: SamplerConfig | null;
-  readonly effectiveSource: 'runtime-slots' | 'unavailable';
+  readonly effectiveSource: 'runtime-slots-uncorrelated' | 'unavailable';
+  /**
+   * What the effective reading actually describes.
+   *
+   * `backend-instance` until llama.cpp exposes a correlation handle. Nothing may
+   * label these facts `request` without one.
+   */
+  readonly effectiveScope: 'backend-instance' | 'request';
   readonly seedSupport: SeedSupport;
   /**
    * Deterministic settings are not a promise of identical output.
@@ -286,6 +395,16 @@ export interface DevicePlacement extends Observed {
   readonly backendHoldsDevice: boolean | null;
   /** VRAM the driver attributes to this pid. Null when not authoritative. */
   readonly backendVramMiB: number | null;
+  /**
+   * Floor a listing must clear to count as placement, in MiB.
+   *
+   * Shared with `scripts/assert-gpu-placement.sh`. A process can appear in the
+   * driver's compute table holding almost nothing; the service assertion has
+   * always required a real allocation, and the API accepting a bare listing
+   * meant the two could disagree about the same backend while the API decided
+   * whether evidence was valid.
+   */
+  readonly floorMiB: number;
   /** `--n-gpu-layers` as started. A request, never a measurement. */
   readonly requestedGpuLayers: number | null;
   /** `--cpu-moe`: expert tensors deliberately kept in system RAM. */
@@ -319,6 +438,24 @@ export interface DevicePlacement extends Observed {
  * does the work. The digest covers the stub and every build-tree object the
  * runtime loads, identified by basename so no path is disclosed.
  */
+/**
+ * How strongly an image digest is tied to the process that is serving.
+ *
+ * Ordered, and the order matters: nothing may present a weaker binding as a
+ * stronger one. The binding is mixed into the digest itself, so a
+ * `configured-tree` digest and a `process-mapped` digest over the same files do
+ * not collide — in 4d8ced6 they did, which meant the strength label could be
+ * dropped without the value changing and nobody would notice.
+ */
+export type ImageDigestBinding =
+  /** The object list came from the process. The strong form. */
+  | 'process-mapped'
+  /** The build tree the process names in its argv. Proves what is on disk. */
+  | 'configured-tree'
+  /** Only the executable could be hashed; the shared objects could not. */
+  | 'executable-only'
+  | 'unavailable';
+
 export interface RuntimeFacts extends Observed {
   readonly engine: 'llama.cpp';
   readonly build: string | null;
@@ -335,7 +472,9 @@ export interface RuntimeFacts extends Observed {
    * so the strong form is unavailable in production and the weaker one must
    * announce itself.
    */
-  readonly imageDigestBinding: 'process-mapped' | 'configured-tree' | 'unavailable';
+  readonly imageDigestBinding: ImageDigestBinding;
+  /** Algorithm version, so a change in how the digest is computed is visible. */
+  readonly imageDigestAlgorithm: 'bokahli.runtime-image.v2' | null;
   /** Basenames of the hashed objects. Never paths. */
   readonly imageComponents: readonly string[];
   readonly driverVersion: string | null;
@@ -407,4 +546,21 @@ export interface QualificationAttestation {
   /** Components that are null and why. Empty when complete. */
   readonly missing: readonly string[];
   readonly observedAt: string;
+  /**
+   * Monotonic counter, incremented whenever the backend instance changes.
+   *
+   * Makes "this attestation is from a later observation" answerable without
+   * comparing timestamps, and makes a stale attestation reused across instances
+   * detectable rather than merely unlikely.
+   */
+  readonly generation: number;
+  /** After this instant the observations behind it must be refreshed. */
+  readonly expiresAt: string;
+  /**
+   * The backend instance every observation here was taken against.
+   *
+   * Telemetry from one instance must never be presented for another. This is
+   * the field that makes copying detectable.
+   */
+  readonly backendInstanceId: string | null;
 }

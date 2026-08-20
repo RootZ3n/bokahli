@@ -134,7 +134,9 @@ export async function probeBackendInstance(
   try {
     bootId = (await sources.readBootId()).trim() || null;
   } catch (err) {
-    reasons.push(`boot id unreadable: ${(err as Error).message}`);
+    // Name, not message: a Node fs error message embeds the path it failed on,
+    // and /proc paths are process detail that should not ride out in a response.
+    reasons.push(`boot id unreadable (${(err as Error).name})`);
   }
 
   let ticks: number | null = null;
@@ -142,7 +144,7 @@ export async function probeBackendInstance(
     ticks = parseStartTicks(await sources.readStat(pid));
     if (ticks === null) reasons.push('/proc/<pid>/stat did not yield a start time');
   } catch (err) {
-    reasons.push(`process stat unreadable: ${(err as Error).message}`);
+    reasons.push(`process stat unreadable (${(err as Error).name})`);
   }
 
   let startedAt: string | null = null;
@@ -153,7 +155,7 @@ export async function probeBackendInstance(
     } catch (err) {
       // The instant is a convenience; the ticks are the identity. Losing the
       // former must not invalidate the latter.
-      reasons.push(`boot time unreadable, start instant not derived: ${(err as Error).message}`);
+      reasons.push(`boot time unreadable, start instant not derived (${(err as Error).name})`);
     }
   }
 

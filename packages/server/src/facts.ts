@@ -32,14 +32,17 @@ import type {
   RuntimeFacts,
   SamplerConfig,
   TemplateFacts,
+  RuntimeTokenizerProof,
   TokenizerIdentity,
 } from '@bokahli/contracts';
 import {
   type GgufTokenizerMetadata,
   type LlamaBackend,
   probeBackendInstance,
+  DEFAULT_PLACEMENT_FLOOR_MIB,
   probeDevicePlacement,
   probeExecutablePath,
+  probeRuntimeTokenizer,
   probeGpuFlags,
   probeRuntimeFacts,
   readGgufTokenizerMetadata,
@@ -59,6 +62,15 @@ import {
  */
 const PLACEMENT_TTL_MS = 5000;
 
+/**
+ * How long an assembled attestation may be presented before it must be redone.
+ *
+ * Bounded so a cached observation cannot outlive the state it describes without
+ * saying so. `expiresAt` is published, so a consumer can refuse a stale
+ * attestation rather than having to trust that Bokahli refreshed it.
+ */
+const ATTESTATION_LIFETIME_MS = 60_000;
+
 export interface FactsProviderOptions {
   readonly backend: LlamaBackend;
   /**
@@ -67,6 +79,8 @@ export interface FactsProviderOptions {
    */
   readonly runtimeExecutablePathFallback: string | null;
   readonly resolveBackendPids: () => Promise<readonly number[]>;
+  /** The artifact's own token table, for the runtime vocabulary probe. */
+  readonly artifactTokens: (a: InternalArtifact) => Promise<readonly string[] | null>;
   readonly now?: () => Date;
 }
 
@@ -101,6 +115,8 @@ export function bindingDigest(binding: AttestedIdentityBinding): ArtifactDigest 
  * instead of arranging for the world to produce it.
  */
 export interface FactsSource {
+  /** The instance id observed most recently, for post-response correlation. */
+  currentInstanceId?(): Promise<string | null>;
   collect(
     artifact: InternalArtifact,
     attested: boolean,
@@ -122,11 +138,19 @@ export interface FactsSource {
  * `partial`, and collapsing the two would report a missing observation as a
  * possible substitution, which is a much louder claim than the facts support.
  */
+function expiryFrom(observedAt: string): string {
+  const base = Date.parse(observedAt);
+  if (!Number.isFinite(base)) return new Date(0).toISOString();
+  return new Date(base + ATTESTATION_LIFETIME_MS).toISOString();
+}
+
 export function attestationFor(
   binding: AttestedIdentityBinding,
   attested: boolean,
   tokenizer: TokenizerIdentity | null,
   observedAt: string,
+  imageBinding: RuntimeFacts['imageDigestBinding'] = 'unavailable',
+  generation = 0,
 ): QualificationAttestation {
   const missing: string[] = [];
   if (binding.imageDigest === null) missing.push('imageDigest');
@@ -139,6 +163,10 @@ export function attestationFor(
     missing.push('devicePlacement.backendHoldsDevice');
   }
   if (tokenizer === null || tokenizer.unprovenReasons.length > 0) missing.push('tokenizer.proof');
+  // A configured-tree digest proves what is on disk, not what the process
+  // mapped. Letting it reach `complete` would upgrade a weaker observation to
+  // full strength by omission, which is exactly the move this audit forbids.
+  if (imageBinding !== 'process-mapped') missing.push(`runtime.imageDigestBinding=${imageBinding}`);
 
   const completeness: AttestationCompleteness = !attested
     ? 'unattested'
@@ -146,15 +174,30 @@ export function attestationFor(
       ? 'complete'
       : 'partial';
 
-  return { binding, bindingDigest: bindingDigest(binding), completeness, missing, observedAt };
+  return {
+    binding,
+    bindingDigest: bindingDigest(binding),
+    completeness,
+    missing,
+    observedAt,
+    generation,
+    // Guarded: `new Date(NaN).toISOString()` throws, and an unparseable
+    // timestamp reaching here would take down the response rather than
+    // degrading the attestation. An expiry that has already passed is the
+    // fail-closed answer — a consumer refuses it rather than trusting it.
+    expiresAt: expiryFrom(observedAt),
+    backendInstanceId: binding.backendInstanceId,
+  };
 }
 
 export class QualificationFactsProvider implements FactsSource {
   readonly #opts: FactsProviderOptions;
   readonly #now: () => Date;
   readonly #artifactCache = new Map<string, ArtifactFactsCache>();
+  readonly #probeCache = new Map<string, RuntimeTokenizerProof>();
   #instanceCache: InstanceFactsCache | null = null;
-  #placement: { at: number; value: DevicePlacement } | null = null;
+  #placement: { at: number; instanceId: string | null; value: DevicePlacement } | null = null;
+  #generation = 0;
 
   constructor(opts: FactsProviderOptions) {
     this.#opts = opts;
@@ -187,19 +230,35 @@ export class QualificationFactsProvider implements FactsSource {
     return entry;
   }
 
+  /** Re-read the instance so a restart during a request is detectable after it. */
+  async currentInstanceId(): Promise<string | null> {
+    const pids = await this.#opts.resolveBackendPids().catch(() => [] as readonly number[]);
+    if (pids.length !== 1) return null;
+    return (await probeBackendInstance(pids[0] as number)).instanceId;
+  }
+
   async #currentPlacement(
     pid: number | null,
+    instanceId: string | null,
     flags: { requestedGpuLayers: number | null; cpuOffloadEnabled: boolean | null },
   ): Promise<DevicePlacement> {
     const nowMs = this.#now().getTime();
-    if (this.#placement && nowMs - this.#placement.at < PLACEMENT_TTL_MS) {
+    // Keyed by instance, not only by age. A five-second TTL alone let a restart
+    // inside the window serve the previous process's placement observation
+    // under the new process's identity. An unknown instance never hits cache.
+    if (
+      this.#placement &&
+      instanceId !== null &&
+      this.#placement.instanceId === instanceId &&
+      nowMs - this.#placement.at < PLACEMENT_TTL_MS
+    ) {
       return this.#placement.value;
     }
     const value = await probeDevicePlacement(
       { backendPid: pid, requestedGpuLayers: flags.requestedGpuLayers, cpuOffloadEnabled: flags.cpuOffloadEnabled },
       { now: this.#now },
     );
-    this.#placement = { at: nowMs, value };
+    this.#placement = { at: nowMs, instanceId, value };
     return value;
   }
 
@@ -219,14 +278,30 @@ export class QualificationFactsProvider implements FactsSource {
   ): Promise<QualificationFacts> {
     const now = this.#now;
     const pids = await this.#opts.resolveBackendPids().catch(() => [] as readonly number[]);
-    const pid = pids[0] ?? null;
+    // Exactly one, or none. Taking the first of several was arbitrary and the
+    // order comes from a readdir, so two matching processes — a wrapper and the
+    // server, or a leftover from a restart — could make identity flip between
+    // requests with nothing to indicate it had.
+    const pid = pids.length === 1 ? (pids[0] as number) : null;
 
     const instance = await probeBackendInstance(pid);
+    const ambiguousPid = pids.length > 1;
     const flags = await probeGpuFlags(pid);
 
     // Runtime facts are cached against the instance, because the serving image
     // cannot change without the process changing.
-    if (this.#instanceCache === null || this.#instanceCache.instanceId !== instance.instanceId) {
+    // A null instance id means "we could not tell". Two nulls are not the same
+    // process, and comparing them with !== retained the previous instance's
+    // runtime facts across a restart that happened while /proc reads were
+    // failing — the exact window in which a restart is most likely.
+    const instanceUnknown = instance.instanceId === null;
+    if (
+      this.#instanceCache === null ||
+      instanceUnknown ||
+      this.#instanceCache.instanceId === null ||
+      this.#instanceCache.instanceId !== instance.instanceId
+    ) {
+      if (this.#instanceCache !== null) this.#generation += 1;
       const exe = (await probeExecutablePath(pid)) ?? this.#opts.runtimeExecutablePathFallback;
       this.#instanceCache = {
         instanceId: instance.instanceId,
@@ -235,7 +310,8 @@ export class QualificationFactsProvider implements FactsSource {
             ? {
                 provenance: 'observed', observedAt: this.#now().toISOString(),
                 engine: 'llama.cpp', build, imageDigest: null,
-                imageDigestBinding: 'unavailable', imageComponents: [],
+                imageDigestBinding: 'unavailable' as const, imageDigestAlgorithm: null,
+                imageComponents: [],
                 driverVersion: null, driverSupportedCuda: null,
                 processCudaRuntime: null, cublasVersion: null,
                 limitation: 'backend executable could not be located, so no image digest was computed',
@@ -243,18 +319,46 @@ export class QualificationFactsProvider implements FactsSource {
             : await probeRuntimeFacts({ executablePath: exe, backendPid: pid, build }),
       };
     }
-    const runtime = this.#instanceCache.runtime;
+    const runtime = (this.#instanceCache as InstanceFactsCache).runtime;
 
-    const placement = await this.#currentPlacement(pid, flags);
+    const placement = await this.#currentPlacement(pid, instance.instanceId, flags);
     const art = await this.#artifactFacts(artifact);
 
     const meta = await this.#opts.backend.modelMeta(artifact.runtimeAlias);
     const slot = await this.#opts.backend.slotParams().catch(() => null);
-    let props: { chat_template?: string } = {};
+    let props: {
+      chat_template?: string;
+      default_generation_settings?: { params?: Record<string, unknown> };
+    } = {};
     try {
       props = await this.#opts.backend.props();
     } catch {
       // Template identity degrades; nothing else depends on it here.
+    }
+    const cfgParams = props.default_generation_settings?.params;
+    const propsReasoningFormat =
+      cfgParams && typeof cfgParams['reasoning_format'] === 'string'
+        ? (cfgParams['reasoning_format'] as string)
+        : null;
+
+    // The behavioural binding. Cached per artifact AND per backend instance: a
+    // probe describes one process reading one vocabulary, and it does not
+    // survive either changing.
+    const probeKey = `${artifact.digest}\u0000${instance.instanceId ?? ''}`;
+    let proof = this.#probeCache.get(probeKey) ?? null;
+    if (proof === null && instance.instanceId !== null && art.tokenizerMetadata !== null) {
+      proof = await probeRuntimeTokenizer(
+        {
+          artifactTokens: await this.#opts.artifactTokens(artifact),
+          backendInstanceId: instance.instanceId,
+        },
+        {
+          tokenize: (text) => this.#opts.backend.tokenize(text),
+          detokenize: (ids) => this.#opts.backend.detokenize(ids),
+          now,
+        },
+      );
+      this.#probeCache.set(probeKey, proof);
     }
 
     const tokenizer: TokenizerIdentity = resolveTokenizerIdentity({
@@ -262,18 +366,27 @@ export class QualificationFactsProvider implements FactsSource {
       runtimeVocabSize: meta.vocabSize,
       runtimeBuild: build,
       artifactAttested: attested,
+      backendInstanceId: instance.instanceId,
+      runtimeTokenizerProof: proof,
       now,
     });
+    const extraReasons = [
+      ...(art.readFailure === null ? [] : [art.readFailure]),
+      ...(ambiguousPid
+        ? [`${pids.length} candidate backend processes match this port; identity is ambiguous`]
+        : []),
+    ];
     const tokenizerWithReadFailure: TokenizerIdentity =
-      art.readFailure === null
+      extraReasons.length === 0
         ? tokenizer
-        : { ...tokenizer, unprovenReasons: [...tokenizer.unprovenReasons, art.readFailure] };
+        : { ...tokenizer, unprovenReasons: [...tokenizer.unprovenReasons, ...extraReasons] };
 
     const template: TemplateFacts = resolveTemplateFacts({
       runtimeTemplate: props.chat_template ?? null,
       artifactTemplateDigest: art.tokenizerMetadata?.chatTemplateDigest ?? null,
       effectiveChatFormat: slot?.chatFormat ?? null,
       effectiveReasoningFormat: slot?.reasoningFormat ?? null,
+      configuredReasoningFormat: propsReasoningFormat,
       // Bokahli asks for no chat format: it sends messages and lets the runtime
       // apply the model's own template. Recording that as an explicit "none"
       // rather than as a null keeps "we did not ask" distinct from "we do not
@@ -310,7 +423,10 @@ export class QualificationFactsProvider implements FactsSource {
       confirmedSampler,
     };
 
-    const attestation = attestationFor(binding, attested, tokenizerWithReadFailure, now().toISOString());
+    const attestation = attestationFor(
+      binding, attested, tokenizerWithReadFailure, now().toISOString(),
+      runtime.imageDigestBinding, this.#generation,
+    );
 
     return {
       contractVersion: 'bokahli.qualification-telemetry.v1',
@@ -353,12 +469,16 @@ export function unavailableFacts(
     contractVersion: 'bokahli.qualification-telemetry.v1',
     runtime: {
       provenance: 'observed', observedAt, engine: 'llama.cpp', build: null,
-      imageDigest: null, imageDigestBinding: 'unavailable', imageComponents: [],
+      imageDigest: null, imageDigestBinding: 'unavailable', imageDigestAlgorithm: null,
+      imageComponents: [],
       driverVersion: null, driverSupportedCuda: null, processCudaRuntime: null,
       cublasVersion: null, limitation: 'no backend was contacted',
     },
     tokenizer: null,
-    template: { requested: null, effective: null, mismatch: null },
+    template: {
+      requested: null, configured: null, effective: null,
+      requestConfirmed: null, mismatch: null, reasoningFormatOverridden: null,
+    },
     backendInstance: {
       provenance: 'observed', observedAt, pid: null, bootId: null,
       kernelStartTicks: null, startedAt: null, instanceId: null,
@@ -367,6 +487,7 @@ export function unavailableFacts(
     placement: {
       provenance: 'observed', observedAt, method: 'unavailable',
       backendPid: null, backendHoldsDevice: null, backendVramMiB: null,
+      floorMiB: DEFAULT_PLACEMENT_FLOOR_MIB,
       requestedGpuLayers: null, cpuOffloadEnabled: null,
       limitation: 'no backend was contacted',
     },
@@ -376,6 +497,9 @@ export function unavailableFacts(
       completeness: 'unattested',
       missing: ['everything: no backend was contacted'],
       observedAt,
+      generation: 0,
+      expiresAt: observedAt,
+      backendInstanceId: null,
     },
   };
 }

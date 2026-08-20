@@ -43,6 +43,17 @@ const PROVEN = {
   runtimeVocabSize: 248320,
   runtimeBuild: 'b10505-ee4c505a4',
   artifactAttested: true,
+  // The behavioural binding added by the audit remediation. Without it the
+  // proof rests on file bytes plus a size comparison, which a load-time
+  // metadata override defeats.
+  backendInstanceId: 'instance-1',
+  runtimeTokenizerProof: {
+    method: 'runtime-vocab-probe', matches: true,
+    samplesChecked: 24, samplesMatched: 24,
+    segmentationDigest: `sha256:${'7c'.repeat(32)}`,
+    backendInstanceId: 'instance-1',
+    observedAt: '2026-08-20T12:00:00.000Z', detail: null,
+  },
   now: NOW,
 };
 
@@ -170,6 +181,43 @@ test('removing the tokenizer digest restores exactly the pilot refusal', async (
     result.refusals.filter((r) => r.code === 'TOKEN_COUNTS_NOT_MEASURED').length, 6,
     'one per attempt, exactly as the 2026-08-20 pilot produced',
   );
+});
+
+test('removing the runtime vocabulary probe restores the pilot refusal', async (t) => {
+  if (!AVAILABLE) return t.skip('Luak is not checked out at ~/repos/luak');
+  // The file facts are all present and the vocabulary size still agrees. Only
+  // the binding to the running process is gone, and that alone must be enough
+  // to block export.
+  const { counts, result } = await runExport(
+    { ...PROVEN, runtimeTokenizerProof: null },
+    'runtime_reported_unknown_tokenizer',
+  );
+  assert.equal(counts.source, 'runtime_reported_unknown_tokenizer');
+  assert.equal(result.ok, false);
+  assert.deepEqual(codes(result), ['CONTEXT_TIER_NOT_MEASURED', 'TOKEN_COUNTS_NOT_MEASURED']);
+});
+
+test('a probe from a different backend instance does not permit export', async (t) => {
+  if (!AVAILABLE) return t.skip('Luak is not checked out at ~/repos/luak');
+  const { counts, result } = await runExport(
+    { ...PROVEN, backendInstanceId: 'instance-2' },
+    'runtime_reported_unknown_tokenizer',
+  );
+  assert.equal(counts.source, 'runtime_reported_unknown_tokenizer');
+  assert.equal(result.ok, false);
+});
+
+test('a disagreeing probe does not permit export', async (t) => {
+  if (!AVAILABLE) return t.skip('Luak is not checked out at ~/repos/luak');
+  const { counts, result } = await runExport(
+    {
+      ...PROVEN,
+      runtimeTokenizerProof: { ...PROVEN.runtimeTokenizerProof, matches: false, samplesMatched: 21 },
+    },
+    'runtime_reported_unknown_tokenizer',
+  );
+  assert.equal(counts.source, 'runtime_reported_unknown_tokenizer');
+  assert.equal(result.ok, false);
 });
 
 test('an unattested backend blocks export even with a tokenizer digest present', async (t) => {

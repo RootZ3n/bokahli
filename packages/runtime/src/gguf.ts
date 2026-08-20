@@ -303,6 +303,42 @@ export async function readGgufTokenizerMetadata(path: string): Promise<GgufToken
   };
 }
 
+/**
+ * The artifact's token table, for the runtime vocabulary probe.
+ *
+ * Separate from `readGgufTokenizerMetadata` because the caller needs the table
+ * itself rather than a hash of it, and because holding 248,320 strings is worth
+ * doing only for the moment the probe runs. Nothing caches the result.
+ */
+export async function readGgufTokenTable(path: string): Promise<readonly string[] | null> {
+  const fh = await open(path, 'r');
+  let window: Buffer;
+  try {
+    const buf = Buffer.allocUnsafe(HEADER_WINDOW_BYTES);
+    const { bytesRead } = await fh.read(buf, 0, HEADER_WINDOW_BYTES, 0);
+    window = buf.subarray(0, bytesRead);
+  } finally {
+    await fh.close();
+  }
+  if (window.length < 24 || window.subarray(0, 4).toString('ascii') !== MAGIC) return null;
+
+  const c = new Cursor(window);
+  void c.u32();
+  const version = c.u32();
+  if (version < 2 || version > 3) return null;
+  void c.u64();
+  const kvCount = c.u64();
+  for (let i = 0; i < kvCount; i++) {
+    const key = c.str();
+    const type = c.u32();
+    const value = c.value(type);
+    if (key === 'tokenizer.ggml.tokens') {
+      return Array.isArray(value) ? (value as readonly string[]) : null;
+    }
+  }
+  return null;
+}
+
 /** Hash arbitrary template text the same way, for comparing runtime against artifact. */
 export function templateDigest(text: string): string {
   return `sha256:${sha256(text)}`;

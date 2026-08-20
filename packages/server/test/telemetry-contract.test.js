@@ -328,10 +328,12 @@ test('a sent seed is reported as requested, not honoured, when nothing echoes it
   }
 });
 
-test('a confirmed seed is reported as honoured', async () => {
+test('a slot echoing our seed is still not honoured over this API', async () => {
   await start();
   try {
-    // Make the slot echo the seed we are about to send.
+    // Make the slot echo the seed we are about to send. Before the audit this
+    // was reported as `honoured`; nothing ties the reading to this generation,
+    // so a matching number is a coincidence with good odds.
     const original = backend.listeners('request')[0];
     backend.removeAllListeners('request');
     backend.on('request', (req, res) => {
@@ -346,8 +348,10 @@ test('a confirmed seed is reported as honoured', async () => {
       return original(req, res);
     });
     const r = await chat({ sampler: { seed: 7 } });
-    assert.equal(r.body.telemetry.sampler.seedSupport, 'honoured');
-    assert.equal(r.body.telemetry.sampler.effective.seed, 7);
+    const sampler = r.body.telemetry.sampler;
+    assert.equal(sampler.seedSupport, 'requested');
+    assert.equal(sampler.effectiveScope, 'backend-instance');
+    assert.equal(sampler.effectiveSource, 'runtime-slots-uncorrelated');
   } finally {
     await stop();
   }
@@ -483,17 +487,37 @@ const PROVEN_TOKENIZER = {
   provenance: 'observed', observedAt: 'x', family: 'gpt2', pretokenizer: 'qwen35',
   vocabSize: 248320, runtimeVocabSize: 248320, vocabSizeMatch: true,
   metadataDigest: `sha256:${'2'.repeat(64)}`, tokenizedBy: 'runtime',
-  runtimeBuild: 'b1', unprovenReasons: [],
+  runtimeBuild: 'b1', unprovenReasons: [], pretokenizerVerified: false,
+  runtimeProof: {
+    method: 'runtime-vocab-probe', matches: true, samplesChecked: 24, samplesMatched: 24,
+    segmentationDigest: null, backendInstanceId: '5'.repeat(64),
+    observedAt: '2026-08-20T12:00:00.000Z', detail: null,
+  },
 };
 
+test('a configured-tree image digest cannot reach complete', () => {
+  // It proves what is on disk, not what the process mapped. Letting it through
+  // would upgrade a weaker observation to full strength by omission.
+  const a = attestationFor(BINDING, true, PROVEN_TOKENIZER, '2026-08-20T12:00:00.000Z', 'configured-tree');
+  assert.equal(a.completeness, 'partial');
+  assert.ok(a.missing.some((m) => m.includes('imageDigestBinding')));
+});
+
+test('an attestation carries a generation, a lifetime, and its instance', () => {
+  const a = attestationFor(BINDING, true, PROVEN_TOKENIZER, '2026-08-20T12:00:00.000Z', 'process-mapped', 3);
+  assert.equal(a.generation, 3);
+  assert.ok(Date.parse(a.expiresAt) > Date.parse(a.observedAt), 'a cached attestation must expire');
+  assert.equal(a.backendInstanceId, BINDING.backendInstanceId);
+});
+
 test('complete requires attestation and every bound component', () => {
-  const a = attestationFor(BINDING, true, PROVEN_TOKENIZER, 'now');
+  const a = attestationFor(BINDING, true, PROVEN_TOKENIZER, '2026-08-20T12:00:00.000Z', 'process-mapped');
   assert.equal(a.completeness, 'complete');
   assert.deepEqual(a.missing, []);
 });
 
 test('an unattested backend is unattested, whatever else is present', () => {
-  const a = attestationFor(BINDING, false, PROVEN_TOKENIZER, 'now');
+  const a = attestationFor(BINDING, false, PROVEN_TOKENIZER, '2026-08-20T12:00:00.000Z', 'process-mapped');
   assert.equal(a.completeness, 'unattested');
 });
 
@@ -501,7 +525,7 @@ test('a missing observation is partial, not unattested', () => {
   // These are different claims. "Partial" says an observation is absent;
   // "unattested" says the served identity was not proven, which would send an
   // operator looking for a substitution that did not happen.
-  const a = attestationFor({ ...BINDING, imageDigest: null }, true, PROVEN_TOKENIZER, 'now');
+  const a = attestationFor({ ...BINDING, imageDigest: null }, true, PROVEN_TOKENIZER, '2026-08-20T12:00:00.000Z', 'process-mapped');
   assert.equal(a.completeness, 'partial');
   assert.deepEqual(a.missing, ['imageDigest']);
 });
@@ -510,7 +534,7 @@ test('unknown placement is not a pass', () => {
   for (const v of [null, false]) {
     const a = attestationFor(
       { ...BINDING, devicePlacement: { ...BINDING.devicePlacement, backendHoldsDevice: v } },
-      true, PROVEN_TOKENIZER, 'now',
+      true, PROVEN_TOKENIZER, '2026-08-20T12:00:00.000Z', 'process-mapped',
     );
     assert.equal(a.completeness, 'partial');
     assert.ok(a.missing.includes('devicePlacement.backendHoldsDevice'));
@@ -521,14 +545,14 @@ test('an unproven tokenizer is named in missing even when its digest is present'
   const a = attestationFor(
     BINDING, true,
     { ...PROVEN_TOKENIZER, unprovenReasons: ['vocabulary size mismatch'] },
-    'now',
+    '2026-08-20T12:00:00.000Z', 'process-mapped',
   );
   assert.equal(a.completeness, 'partial');
   assert.ok(a.missing.includes('tokenizer.proof'));
 });
 
 test('a null tokenizer is missing proof, not silently complete', () => {
-  const a = attestationFor(BINDING, true, null, 'now');
+  const a = attestationFor(BINDING, true, null, '2026-08-20T12:00:00.000Z', 'process-mapped');
   assert.ok(a.missing.includes('tokenizer.proof'));
 });
 
@@ -539,4 +563,9 @@ test('facts for a deployment with no backend claim nothing', () => {
   assert.equal(f.placement.backendHoldsDevice, null);
   assert.equal(f.runtime.imageDigestBinding, 'unavailable');
   assert.ok(f.attestation.bindingDigest, 'even an empty binding gets a digest');
+});
+
+test('an unparseable observation time yields an expired attestation, not a crash', () => {
+  const a = attestationFor(BINDING, true, PROVEN_TOKENIZER, 'not-a-date', 'process-mapped');
+  assert.ok(Date.parse(a.expiresAt) < Date.now(), 'already expired is the fail-closed answer');
 });

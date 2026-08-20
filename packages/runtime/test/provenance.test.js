@@ -27,6 +27,9 @@ import {
   resolveTokenizerIdentity,
   templateDigest,
   tokenizerFullyProven,
+  probeRuntimeTokenizer,
+  sampleIds,
+  decodeByteLevel,
 } from '../dist/index.js';
 
 const NOW = () => new Date('2026-08-20T12:00:00.000Z');
@@ -148,10 +151,16 @@ const PROVEN_TOKENIZER = {
   runtimeVocabSize: 248320,
   runtimeBuild: 'b10505',
   artifactAttested: true,
+  backendInstanceId: 'i1',
+  runtimeTokenizerProof: {
+    method: 'runtime-vocab-probe', matches: true, samplesChecked: 24, samplesMatched: 24,
+    segmentationDigest: `sha256:${'7c'.repeat(32)}`, backendInstanceId: 'i1',
+    observedAt: '2026-08-20T12:00:00.000Z', detail: null,
+  },
   now: NOW,
 };
 
-test('runtime_tokenizer is claimable only with all three proofs', () => {
+test('runtime_tokenizer is claimable only with every proof, binding included', () => {
   const t = resolveTokenizerIdentity(PROVEN_TOKENIZER);
   assert.deepEqual(t.unprovenReasons, []);
   assert.equal(tokenizerFullyProven(t), true);
@@ -239,10 +248,10 @@ test('a runtime template matching the artifact proves the model own template was
     digestOf: templateDigest,
     now: NOW,
   });
-  assert.equal(f.effective.matchesArtifactTemplate, true);
-  assert.equal(f.effective.appliedBy, 'runtime');
-  assert.equal(f.effective.applied, true);
-  assert.equal(f.effective.templateId, 'peg-native');
+  assert.equal(f.configured.matchesArtifactTemplate, true);
+  assert.equal(f.configured.appliedBy, 'runtime');
+  assert.equal(f.configured.applied, null, 'configuration is not application');
+  assert.equal(f.configured.templateId, 'peg-native');
 });
 
 test('a substituted template is caught by bytes even when the name is unchanged', () => {
@@ -255,7 +264,7 @@ test('a substituted template is caught by bytes even when the name is unchanged'
     digestOf: templateDigest,
     now: NOW,
   });
-  assert.equal(f.effective.matchesArtifactTemplate, false);
+  assert.equal(f.configured.matchesArtifactTemplate, false);
 });
 
 test('requested and effective template are separate, and a mismatch is reported', () => {
@@ -269,10 +278,10 @@ test('requested and effective template are separate, and a mismatch is reported'
     now: NOW,
   });
   assert.equal(f.requested.templateId, 'content-only');
-  assert.equal(f.effective.templateId, 'peg-native');
+  assert.equal(f.configured.templateId, 'peg-native');
   assert.equal(f.mismatch, true);
   assert.equal(f.requested.provenance, 'requested');
-  assert.equal(f.effective.provenance, 'runtime-reported');
+  assert.equal(f.configured.provenance, 'runtime-reported');
 });
 
 test('asking for nothing is not the same as not knowing what was asked', () => {
@@ -299,9 +308,9 @@ test('a runtime that reports no template yields unknown authority, not an assume
     digestOf: templateDigest,
     now: NOW,
   });
-  assert.equal(f.effective.appliedBy, 'unknown');
-  assert.equal(f.effective.applied, null);
-  assert.equal(f.effective.matchesArtifactTemplate, null);
+  assert.equal(f.configured.appliedBy, 'unknown');
+  assert.equal(f.configured.applied, null);
+  assert.equal(f.configured.matchesArtifactTemplate, null);
 });
 
 // ---------------------------------------------------------------------------
@@ -331,21 +340,47 @@ test('seed: requested but unconfirmed — sending is not honouring', () => {
   assert.equal(f.effectiveSource, 'unavailable');
 });
 
-test('seed: honoured only when the runtime echoes the same value', () => {
+test('seed: an echo without a correlation handle is not honoured', () => {
+  // This is the state on the pinned llama.cpp build. The slot shows our seed
+  // and that is not evidence: the reading could predate the request, follow its
+  // reset, or belong to the next queued one.
   const f = resolveSamplerFacts({
     requested: { seed: 7 }, sent: { seed: 7 }, slot: slot({ seed: 7 }),
     unsetSeedSentinel: LLAMA_UNSET_SEED,
   });
-  assert.equal(f.seedSupport, 'honoured');
-  assert.equal(f.effective.seed, 7);
+  assert.equal(f.seedSupport, 'requested');
+  assert.equal(f.effectiveScope, 'backend-instance');
 });
 
-test('seed: a different echoed value is overridden, not honoured', () => {
+test('seed: honoured once a correlation handle ties the reading to this generation', () => {
+  const f = resolveSamplerFacts({
+    requested: { seed: 7 }, sent: { seed: 7 }, slot: slot({ seed: 7 }),
+    requestCorrelation: { slotId: 0, taskId: 635 },
+    unsetSeedSentinel: LLAMA_UNSET_SEED,
+  });
+  assert.equal(f.seedSupport, 'honoured');
+  assert.equal(f.effective.seed, 7);
+  assert.equal(f.effectiveScope, 'request');
+});
+
+test('seed: a correlated echo of a different value is overridden', () => {
   const f = resolveSamplerFacts({
     requested: { seed: 7 }, sent: { seed: 7 }, slot: slot({ seed: 99 }),
+    requestCorrelation: { slotId: 0, taskId: 635 },
     unsetSeedSentinel: LLAMA_UNSET_SEED,
   });
   assert.equal(f.seedSupport, 'overridden');
+});
+
+test('seed: a correlation handle from a restarted instance is discarded', () => {
+  const f = resolveSamplerFacts({
+    requested: { seed: 7 }, sent: { seed: 7 }, slot: slot({ seed: 7 }),
+    requestCorrelation: { slotId: 0, taskId: 635 },
+    slotCorrelation: { backendInstanceId: 'i-new', requestInstanceId: 'i-old' },
+    unsetSeedSentinel: LLAMA_UNSET_SEED,
+  });
+  assert.equal(f.seedSupport, 'requested');
+  assert.equal(f.effective, null);
 });
 
 test('seed: unavailable when the runtime reports no seed at all', () => {
@@ -359,7 +394,9 @@ test('seed: unavailable when the runtime reports no seed at all', () => {
 test('deterministic settings never claim deterministic output', () => {
   const f = resolveSamplerFacts({
     requested: { temperature: 0, seed: 1 }, sent: { temperature: 0, seed: 1 },
-    slot: slot({ temperature: 0, seed: 1 }), unsetSeedSentinel: LLAMA_UNSET_SEED,
+    slot: slot({ temperature: 0, seed: 1 }),
+    requestCorrelation: { slotId: 0, taskId: 1 },
+    unsetSeedSentinel: LLAMA_UNSET_SEED,
   });
   assert.equal(f.seedSupport, 'honoured');
   assert.equal(f.deterministicOutputGuaranteed, false);
@@ -511,14 +548,23 @@ test('requested gpu layers are carried as a request, never as an observation', a
 // ---------------------------------------------------------------------------
 
 function hostSources(o = {}) {
-  const files = o.files ?? { 'llama-server': 'stub', 'libggml-cuda.so.0': 'cuda' };
+  const files = o.files ?? {
+    'llama-server': 'stub', 'libggml-cuda.so.0': 'cuda',
+    'libggml-base.so.0': 'base', 'libggml-cpu.so.0': 'cpu',
+    'libggml.so.0': 'ggml', 'libllama.so.0': 'llama',
+  };
   return {
     readProcMaps: o.readProcMaps ?? (async () =>
       '7f00-7f01 r-xp /usr/lib64/libcudart.so.13.2.51\n' +
       '7f02-7f03 r-xp /usr/lib64/libcublas.so.13.3.0.5\n' +
       '7f04-7f05 r-xp /opt/bin/libggml-cuda.so.0\n' +
+      '7f08-7f09 r-xp /opt/bin/libggml-base.so.0\n' +
+      '7f0a-7f0b r-xp /opt/bin/libggml-cpu.so.0\n' +
+      '7f0c-7f0d r-xp /opt/bin/libggml.so.0\n' +
+      '7f0e-7f0f r-xp /opt/bin/libllama.so.0\n' +
       '7f06-7f07 r-xp /opt/bin/llama-server\n'),
     listDir: async () => Object.keys(files),
+    isSymlink: o.isSymlink ?? (async () => false),
     hashFile: async (p) => {
       const name = p.slice(p.lastIndexOf('/') + 1);
       if (!(name in files)) throw new Error('unreadable');
@@ -537,7 +583,11 @@ test('the image digest covers the shared objects, not just the stub executable',
   const a = await probeRuntimeFacts(hostInputs, hostSources());
   const b = await probeRuntimeFacts(
     hostInputs,
-    hostSources({ files: { 'llama-server': 'stub', 'libggml-cuda.so.0': 'REBUILT' } }),
+    hostSources({ files: {
+      'llama-server': 'stub', 'libggml-cuda.so.0': 'REBUILT',
+      'libggml-base.so.0': 'base', 'libggml-cpu.so.0': 'cpu',
+      'libggml.so.0': 'ggml', 'libllama.so.0': 'llama',
+    } }),
   );
   assert.notEqual(
     a.imageDigest, b.imageDigest,
@@ -607,4 +657,104 @@ test('the unset sentinel is not a substituted seed', () => {
   assert.equal(f.seedSupport, 'requested');
   assert.notEqual(f.seedSupport, 'overridden');
   assert.equal(f.effective.seed, undefined);
+});
+
+// ---------------------------------------------------------------------------
+// the runtime vocabulary probe
+// ---------------------------------------------------------------------------
+
+const TOKENS = Array.from({ length: 1000 }, (_, i) => `tok${i}`);
+
+function probeSources(o = {}) {
+  return {
+    tokenize: o.tokenize ?? (async () => [1, 2, 3]),
+    detokenize: o.detokenize ?? (async ([id]) => TOKENS[id]),
+    now: NOW,
+  };
+}
+
+test('probe: sampled ids are deterministic and cover both ends of the vocabulary', () => {
+  const a = sampleIds(248320);
+  const b = sampleIds(248320);
+  assert.deepEqual(a, b, 'two runs must check the same entries or results are not comparable');
+  assert.equal(a[0], 0);
+  assert.equal(a.at(-1), 248319, 'the added-token region is where a substitution shows up');
+  assert.ok(a.length > 1 && a.length <= 24);
+});
+
+test('probe: a matching vocabulary proves the binding', async () => {
+  const p = await probeRuntimeTokenizer(
+    { artifactTokens: TOKENS, backendInstanceId: 'i1' }, probeSources(),
+  );
+  assert.equal(p.matches, true);
+  assert.equal(p.samplesMatched, p.samplesChecked);
+  assert.equal(p.backendInstanceId, 'i1');
+  assert.match(p.segmentationDigest, /^sha256:/);
+});
+
+test('probe: one substituted entry is caught', async () => {
+  // The case the whole probe exists for: an --override-kv replacing the token
+  // table, invisible to the artifact digest and to the vocabulary size.
+  const p = await probeRuntimeTokenizer(
+    { artifactTokens: TOKENS, backendInstanceId: 'i1' },
+    probeSources({ detokenize: async ([id]) => (id === 999 ? 'TAMPERED' : TOKENS[id]) }),
+  );
+  assert.equal(p.matches, false);
+  assert.equal(p.detail.includes('999'), true);
+});
+
+test('probe: ids are compared one at a time so differences cannot cancel out', async () => {
+  const seen = [];
+  await probeRuntimeTokenizer(
+    { artifactTokens: TOKENS, backendInstanceId: 'i1' },
+    probeSources({ detokenize: async (ids) => { seen.push(ids.length); return TOKENS[ids[0]]; } }),
+  );
+  assert.ok(seen.every((n) => n === 1), 'batching would let an offsetting pair pass');
+});
+
+test('probe: a failing runtime is unproven, not silently matched', async () => {
+  const p = await probeRuntimeTokenizer(
+    { artifactTokens: TOKENS, backendInstanceId: 'i1' },
+    probeSources({ detokenize: async () => { throw new TypeError('connection reset'); } }),
+  );
+  assert.equal(p.matches, false);
+  assert.match(p.detail, /detokenize failed/);
+});
+
+test('probe: no artifact token table means nothing to compare against', async () => {
+  const p = await probeRuntimeTokenizer(
+    { artifactTokens: null, backendInstanceId: 'i1' }, probeSources(),
+  );
+  assert.equal(p.matches, false);
+  assert.equal(p.samplesChecked, 0);
+});
+
+test('probe: a failed tokenize costs the segmentation record, not the binding', async () => {
+  const p = await probeRuntimeTokenizer(
+    { artifactTokens: TOKENS, backendInstanceId: 'i1' },
+    probeSources({ tokenize: async () => { throw new Error('nope'); } }),
+  );
+  assert.equal(p.matches, true, 'the vocabulary comparison is what binds');
+  assert.equal(p.segmentationDigest, null);
+});
+
+test('probe: segmentation digest changes when the runtime segments differently', async () => {
+  const a = await probeRuntimeTokenizer(
+    { artifactTokens: TOKENS, backendInstanceId: 'i1' },
+    probeSources({ tokenize: async () => [1, 2, 3] }),
+  );
+  const b = await probeRuntimeTokenizer(
+    { artifactTokens: TOKENS, backendInstanceId: 'i1' },
+    probeSources({ tokenize: async () => [1, 2, 4] }),
+  );
+  assert.notEqual(a.segmentationDigest, b.segmentationDigest);
+});
+
+test('probe: byte-level encoded tokens decode before comparison', () => {
+  // GGUF stores a leading space as U+0120. Comparing the encoded form against
+  // the runtime's decoded text would fail on every whitespace-bearing token and
+  // the probe would be switched off as broken.
+  assert.equal(decodeByteLevel('Ġhello'), ' hello');
+  assert.equal(decodeByteLevel('Ċline'), '\nline');
+  assert.equal(decodeByteLevel('plain'), 'plain');
 });

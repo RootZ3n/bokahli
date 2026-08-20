@@ -7,3 +7,4 @@ export * from './instance.js';
 export * from './placement.js';
 export * from './hostfacts.js';
 export * from './facts.js';
+export * from './tokenizer-probe.js';

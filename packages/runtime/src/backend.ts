@@ -236,6 +236,44 @@ export class LlamaBackend {
     };
   }
 
+  /**
+   * Tokenize text with the runtime's own tokenizer.
+   *
+   * Not inference: no decode, no slot, no GPU work. This and `detokenize` are
+   * the only channel through which Bokahli can observe the vocabulary the
+   * process actually loaded, as opposed to the one its artifact declares.
+   */
+  async tokenize(text: string): Promise<readonly number[]> {
+    const r = await this.#post('/tokenize', { content: text, with_pieces: false });
+    const body = (await r.json()) as { tokens?: unknown };
+    return Array.isArray(body.tokens) ? (body.tokens as number[]).filter(Number.isInteger) : [];
+  }
+
+  /** Text for a list of token ids, from the runtime's loaded vocabulary. */
+  async detokenize(ids: readonly number[]): Promise<string> {
+    const r = await this.#post('/detokenize', { tokens: [...ids] });
+    const body = (await r.json()) as { content?: unknown };
+    return typeof body.content === 'string' ? body.content : '';
+  }
+
+  async #post(path: string, payload: unknown): Promise<Response> {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), this.#timeoutMs);
+    try {
+      const r = await fetch(`${this.#baseUrl}${path}`, {
+        method: 'POST',
+        headers: this.#headers({ 'content-type': 'application/json' }),
+        body: JSON.stringify(payload),
+        signal: ctrl.signal,
+        redirect: 'manual',
+      });
+      if (!r.ok) throw new BackendUnavailableError(`backend ${path} returned ${r.status}`);
+      return r;
+    } finally {
+      clearTimeout(t);
+    }
+  }
+
   async metricsAvailable(): Promise<boolean> {
     try {
       const r = await this.#get('/metrics', 3000);

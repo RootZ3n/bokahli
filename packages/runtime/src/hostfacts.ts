@@ -27,7 +27,7 @@
  */
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readdir, readFile, stat } from 'node:fs/promises';
+import { lstat, readdir, readFile, stat } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import type { RuntimeFacts } from '@bokahli/contracts';
@@ -37,11 +37,41 @@ const run = promisify(execFile);
 /** A single object refuses to be hashed past this size; a build tree is not a model. */
 const MAX_OBJECT_BYTES = 512 * 1024 * 1024;
 /** Objects whose extension marks them as part of the serving image. */
-const OBJECT_PATTERN = /\.so(\.\d+)*$/;
+const OBJECT_PATTERN = /\.so(\.[0-9]+)*$/;
+
+/**
+ * Version of the digest construction. Mixed into the preimage.
+ *
+ * v1 hashed whatever shared objects happened to be in the directory and did not
+ * mix in the binding strength, so a `configured-tree` digest and a
+ * `process-mapped` digest over the same files collided — the strength label
+ * could be dropped and the value would not change.
+ */
+export const IMAGE_DIGEST_ALGORITHM = 'bokahli.runtime-image.v2' as const;
+
+/**
+ * The objects that define a llama.cpp serving image, by basename prefix.
+ *
+ * Explicit rather than "every .so in the directory". A build tree accumulates
+ * unrelated things — `llama-cli`, `llama-bench`, a stale `.so` from a previous
+ * build — and including them meant that running a benchmark once changed the
+ * identity of the serving image without any of the serving code changing.
+ */
+const REQUIRED_PREFIXES = ['libggml-base', 'libggml-cpu', 'libggml', 'libllama'] as const;
+const OPTIONAL_PREFIXES = ['libggml-cuda', 'libllama-common', 'libllama-server-impl', 'libmtmd'] as const;
+
+function classify(base: string): 'required' | 'optional' | 'ignore' {
+  if (!OBJECT_PATTERN.test(base)) return 'ignore';
+  const stem = base.slice(0, base.indexOf('.so'));
+  if ((REQUIRED_PREFIXES as readonly string[]).includes(stem)) return 'required';
+  if ((OPTIONAL_PREFIXES as readonly string[]).includes(stem)) return 'optional';
+  return 'ignore';
+}
 
 export interface HostFactsSources {
   readonly readProcMaps: (pid: number) => Promise<string>;
   readonly listDir: (dir: string) => Promise<readonly string[]>;
+  readonly isSymlink: (path: string) => Promise<boolean>;
   readonly hashFile: (path: string) => Promise<string>;
   readonly fileSize: (path: string) => Promise<number>;
   readonly nvidiaSmi: (args: readonly string[]) => Promise<string>;
@@ -58,6 +88,7 @@ async function sha256File(path: string): Promise<string> {
 export const REAL_HOST_SOURCES: HostFactsSources = {
   readProcMaps: (pid) => readFile(`/proc/${pid}/maps`, 'utf8'),
   listDir: (dir) => readdir(dir),
+  isSymlink: async (p) => (await lstat(p)).isSymbolicLink(),
   hashFile: sha256File,
   fileSize: async (p) => (await stat(p)).size,
   nvidiaSmi: async (args) => (await run('nvidia-smi', [...args], { timeout: 4000 })).stdout,
@@ -85,13 +116,14 @@ function mappedTreeObjects(maps: string, treeRoot: string): readonly string[] {
 
 async function treeObjects(
   dir: string,
+  executable: string,
   sources: HostFactsSources,
 ): Promise<readonly string[]> {
   const names = await sources.listDir(dir);
-  return names
-    .filter((n) => OBJECT_PATTERN.test(n) || !n.includes('.'))
-    .map((n) => join(dir, n))
-    .sort();
+  const picked = names.filter((n) => classify(n) !== 'ignore').map((n) => join(dir, n));
+  // The executable itself, by its exact path — not "any extensionless file",
+  // which swept in every other binary the build produced.
+  return [executable, ...picked].sort();
 }
 
 interface ImageDigest {
@@ -101,33 +133,61 @@ interface ImageDigest {
   readonly limitation: string | null;
 }
 
+interface DigestOutcome {
+  readonly digest: string;
+  readonly components: readonly string[];
+  /** Required objects that could not be hashed. Non-empty means fail closed. */
+  readonly unreadable: readonly string[];
+}
+
 async function digestObjects(
   paths: readonly string[],
+  binding: RuntimeFacts['imageDigestBinding'],
   sources: HostFactsSources,
-): Promise<{ digest: string; components: readonly string[] } | null> {
+): Promise<DigestOutcome | null> {
   const lines: string[] = [];
   const components: string[] = [];
+  const unreadable: string[] = [];
   // Sorted by basename so the digest does not depend on directory order, and
-  // so two hosts with the same build at different paths agree.
+  // so two hosts with the same build at different paths agree. Deduplicated,
+  // because a path alias would otherwise contribute the same content twice and
+  // change the digest without changing the image.
+  const seen = new Set<string>();
   const byBase = [...paths].sort((a, b) => basename(a).localeCompare(basename(b)));
   for (const p of byBase) {
+    const base = basename(p);
+    if (seen.has(base)) continue;
+    seen.add(base);
     try {
-      if ((await sources.fileSize(p)) > MAX_OBJECT_BYTES) continue;
+      // A symlink is refused rather than followed. Following one lets a link
+      // in the build tree point the digest at content that is not the content
+      // the loader will map, which is a substitution the digest exists to catch.
+      if (await sources.isSymlink(p)) {
+        unreadable.push(base);
+        continue;
+      }
+      if ((await sources.fileSize(p)) > MAX_OBJECT_BYTES) {
+        unreadable.push(base);
+        continue;
+      }
       const h = await sources.hashFile(p);
       // Basename only. The path is an internal detail and must not be
       // reconstructible from anything that reaches a response.
-      lines.push(`${basename(p)}:${h}`);
-      components.push(basename(p));
+      lines.push(`${base}:${h}`);
+      components.push(base);
     } catch {
-      continue; // an object we cannot read cannot contribute
+      unreadable.push(base);
     }
   }
   if (lines.length === 0) return null;
   return {
+    // The binding is part of the preimage, so a weaker observation can never
+    // produce a value indistinguishable from a stronger one.
     digest: `sha256:${createHash('sha256')
-      .update(`bokahli.runtime-image.v1\n${lines.join('\n')}`)
+      .update(`${IMAGE_DIGEST_ALGORITHM}\nbinding=${binding}\n${lines.join('\n')}`)
       .digest('hex')}`,
     components,
+    unreadable,
   };
 }
 
@@ -142,10 +202,12 @@ async function resolveImageDigest(
   if (backendPid !== null) {
     try {
       const maps = await sources.readProcMaps(backendPid);
-      const mapped = mappedTreeObjects(maps, treeRoot);
+      const mapped = mappedTreeObjects(maps, treeRoot).filter(
+        (pth) => pth === executablePath || classify(basename(pth)) !== 'ignore',
+      );
       if (mapped.length > 0) {
-        const d = await digestObjects(mapped, sources);
-        if (d !== null) {
+        const d = await digestObjects(mapped, 'process-mapped', sources);
+        if (d !== null && d.unreadable.length === 0) {
           return {
             digest: d.digest,
             binding: 'process-mapped',
@@ -159,8 +221,10 @@ async function resolveImageDigest(
     }
   }
 
-  const objects = await treeObjects(treeRoot, sources).catch(() => [] as readonly string[]);
-  const d = await digestObjects(objects, sources);
+  const objects = await treeObjects(treeRoot, executablePath, sources).catch(
+    () => [] as readonly string[],
+  );
+  const d = await digestObjects(objects, 'configured-tree', sources);
   if (d === null) {
     return {
       digest: null,
@@ -169,6 +233,29 @@ async function resolveImageDigest(
       limitation: 'no readable objects in the configured runtime build tree',
     };
   }
+
+  // Fail closed on an incomplete set. A digest computed over a build tree that
+  // is missing a required object is still a valid-looking hash, and a reader
+  // has no way to tell it apart from one over a complete tree. Before this,
+  // a missing libggml silently produced a different digest and called it fine.
+  const missingRequired = REQUIRED_PREFIXES.filter(
+    (pre) => !d.components.some((c) => c.startsWith(`${pre}.so`)),
+  );
+  if (missingRequired.length > 0 || d.unreadable.length > 0) {
+    const onlyExe = d.components.length === 1;
+    return {
+      digest: onlyExe ? d.digest : null,
+      binding: onlyExe ? 'executable-only' : 'unavailable',
+      components: d.components,
+      limitation:
+        `runtime image incomplete: ${missingRequired.length > 0 ? `missing ${missingRequired.join(', ')}` : ''}` +
+        `${missingRequired.length > 0 && d.unreadable.length > 0 ? '; ' : ''}` +
+        `${d.unreadable.length > 0 ? `unreadable or symlinked: ${d.unreadable.join(', ')}` : ''}` +
+        '. A digest over a partial image is indistinguishable from one over a whole one, ' +
+        'so it is not offered as image identity.',
+    };
+  }
+
   return {
     digest: d.digest,
     binding: 'configured-tree',
@@ -176,7 +263,8 @@ async function resolveImageDigest(
     limitation:
       'digest covers the configured build tree, not the object list of the running ' +
       'process: /proc/<pid>/maps is denied under this service sandbox, so the digest ' +
-      'proves what is on disk rather than what this process mapped',
+      'proves what is on disk rather than what this process mapped. It is NOT proof ' +
+      'of the libraries this process actually mapped.',
   };
 }
 
@@ -256,6 +344,7 @@ export async function probeRuntimeFacts(
     build: inputs.build,
     imageDigest: image.digest,
     imageDigestBinding: image.binding,
+    imageDigestAlgorithm: image.digest === null ? null : IMAGE_DIGEST_ALGORITHM,
     imageComponents: image.components,
     driverVersion,
     driverSupportedCuda,

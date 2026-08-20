@@ -668,6 +668,11 @@ async function buildTelemetry(
   },
 ): Promise<RequestTelemetry> {
   const slot = await readEffectiveSampler(deps, a);
+  // The instance the request was routed against. If the backend restarted since
+  // then, the slot we just read belongs to a different process and is dropped
+  // rather than reported at reduced confidence.
+  const routedInstance = a.served.qualificationFacts.backendInstance.instanceId;
+  const nowInstance = (await deps.facts.currentInstanceId?.()) ?? routedInstance;
   const sampler = resolveSamplerFacts({
     requested: a.requestedSampler,
     // What actually went on the wire: the requested value where there was one,
@@ -681,6 +686,10 @@ async function buildTelemetry(
       ...(a.seed !== undefined ? { seed: a.seed } : {}),
     },
     slot,
+    slotCorrelation:
+      routedInstance === null || nowInstance === null
+        ? null
+        : { backendInstanceId: nowInstance, requestInstanceId: routedInstance },
     unsetSeedSentinel: LLAMA_UNSET_SEED,
   });
   const tokenCounts = resolveTokenCounts({
@@ -781,6 +790,7 @@ function finishNonRouted(
       sent: {},
       effective: null,
       effectiveSource: 'unavailable',
+      effectiveScope: 'backend-instance',
       seedSupport: 'not_requested',
       deterministicOutputGuaranteed: false,
     },
