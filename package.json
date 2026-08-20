@@ -1,0 +1,26 @@
+{
+  "name": "bokahli",
+  "version": "2.0.0-phase1",
+  "private": true,
+  "description": "Bokahli v2 — local AI platform: catalog-driven routing, exact served identity, loopback inference execution.",
+  "license": "MIT",
+  "type": "module",
+  "engines": { "node": ">=22.18.0" },
+  "workspaces": [
+    "packages/contracts",
+    "packages/catalog",
+    "packages/runtime",
+    "packages/server"
+  ],
+  "scripts": {
+    "build": "tsc --build",
+    "clean": "tsc --build --clean",
+    "typecheck": "tsc --build --dry 2>/dev/null || tsc --build",
+    "start": "node packages/server/dist/main.js",
+    "test": "node --test packages/*/test/*.test.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "typescript": "^5.9.0"
+  }
+}

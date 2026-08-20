@@ -1,0 +1,52 @@
+# Evidence capture: pre-existing llama-server process
+capture_time_utc: 2026-08-20T10:25:39Z
+capture_time_local: 2026-08-20T05:25:39-0500
+captured_by: Bokahli v2 Phase 1, read-only
+
+## Process identity
+pid: 25179
+ppid: 25147
+start_time: Wed Aug 19 05:34:44 2026
+elapsed: 23:50:55
+uid_gid: Uid:	1000	1000	1000	1000 Gid:	1000	1000	1000	1000 
+state: S (sleeping)
+threads: 39
+
+## Complete command line (NUL-separated, one arg per line)
+     1	/home/zen/llama.cpp/build/bin/llama-server
+     2	-m
+     3	/home/zen/models/Qwen_Qwen3.5-35B-A3B-Q2_K.gguf
+     4	--host
+     5	0.0.0.0
+     6	--port
+     7	8080
+     8	-ngl
+     9	999
+    10	--cpu-moe
+    11	-c
+    12	4096
+    13	--flash-attn
+    14	on
+    15	--reasoning
+    16	off
+
+## Parent shell command line
+     1	bash
+     2	-c
+     3	~/llama.cpp/build/bin/llama-server -m ~/models/Qwen_Qwen3.5-35B-A3B-Q2_K.gguf --host 0.0.0.0 --port 8080 -ngl 999 --cpu-moe -c 4096 --flash-attn on --reasoning off 2>&1 | head -30
+
+## Executable identity
+exe_symlink: /home/zen/llama.cpp/build/bin/llama-server
+exe_sha256: 30ced9f78f3801f7dcd36b19a3881ad934617bce8d6d7bf76241013a165add6f
+exe_size_bytes: 12528
+exe_mtime: 2026-08-19 05:08:51.124448822 -0500
+cwd: /home/zen
+root: /
+
+## Linked ggml/llama shared objects (sha256)
+b1acd8d268f9f49f9904d17649f045f8d1fd4f682e06c395c43ca09ccf6d5860  /home/zen/llama.cpp/build/bin/libggml-base.so.0.20.2
+e0d2ab4a29834d46731f921a0813c3d1549a55d35fec654bb2d50383b0051258  /home/zen/llama.cpp/build/bin/libggml-cpu.so.0.20.2
+66095ccdae178fc33a8ff96488bcb296ce3cd99dc644177ed44363e12027343b  /home/zen/llama.cpp/build/bin/libggml-cuda.so.0.20.2
+e48b28c4668ae2b29407c440e676daf219ab9245cfc725adf13f8d75f98c262d  /home/zen/llama.cpp/build/bin/libggml.so.0.20.2
+e37069837982c61d1d361a6db9fb8c1f1283744d0f9ce780e2bae7aba4e3dbf4  /home/zen/llama.cpp/build/bin/libllama.so.0.1.2
+15b4260ea77700c12451a507bc5e4459f7100935f9548af10b68ec408d300522  /home/zen/llama.cpp/build/bin/libllama-server-impl.so

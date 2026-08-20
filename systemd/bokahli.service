@@ -1,0 +1,40 @@
+# Bokahli v2 — API and chat UI.
+#
+# Binds loopback and Mushin's Tailscale address only. Wildcard binds are
+# rejected by the process itself at startup, not merely omitted here.
+[Unit]
+Description=Bokahli v2 — local AI platform API and chat UI
+Documentation=file:/home/zen/repos/bokahli/README.md
+After=network-online.target bokahli-runtime.service
+Wants=network-online.target
+Requires=bokahli-runtime.service
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/bokahli/shared.env
+EnvironmentFile=%h/.config/bokahli/bokahli.env
+WorkingDirectory=/home/zen/repos/bokahli
+ExecStart=/home/zen/.local/bin/node /home/zen/repos/bokahli/packages/server/dist/main.js
+
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=120
+TimeoutStopSec=30
+KillMode=mixed
+KillSignal=SIGTERM
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=bokahli
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectControlGroups=true
+ProtectKernelTunables=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=default.target

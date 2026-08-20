@@ -1,0 +1,21 @@
+## Cold start (full stack, from stopped)
+runtime unit start->ready (systemd gated): 2.154337615s
+bokahli start->live (incl. startup digest verify): 11.302541986s
+bokahli live->ready: .070603158s
+TOTAL cold stack start->ready: 13.527482759s
+
+## First request after cold start (cold KV, cold prompt cache)
+{"ttftMs":221,"totalMs":1232,"promptTokens":20,"completionTokens":64,"prefillTps":100,"decodeTps":62.3,"routeMs":1,"queueWaitMs":0}
+
+## Warm requests (same shape, x3)
+{"run":1,"ttftMs":138,"totalMs":1142,"prefillTps":67,"decodeTps":62.8}
+{"run":2,"ttftMs":128,"totalMs":1141,"prefillTps":74,"decodeTps":62.2}
+{"run":3,"ttftMs":145,"totalMs":1172,"prefillTps":73,"decodeTps":61.3}
+
+## Queue behaviour: 3 concurrent requests against 1 slot
+{"outcome":"ROUTED","queueWaitMs":0,"depthAtAdmission":0,"totalMs":996}
+{"outcome":null,"queueWaitMs":null,"depthAtAdmission":null,"totalMs":null}
+{"outcome":"ROUTED","queueWaitMs":1169,"depthAtAdmission":0,"totalMs":2153}
+
+## Telemetry summary
+{"outcomes":{"ROUTED":6,"ESCALATE":0,"REFUSED":0,"CAPACITY_UNAVAILABLE":0},"latency":{"samples":6,"p50TtftMs":145,"p95TtftMs":1309,"p50TotalMs":1142,"p95TotalMs":2153,"maxQueueWaitMs":1169},"tokens":{"totalPromptTokens":116,"totalCompletionTokens":358,"meanCompletionTokensPerSecond":62.07},"queue":{"peakDepth":2,"totalAdmitted":7,"maxConcurrent":1}}

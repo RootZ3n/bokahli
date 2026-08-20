@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Bokahli</title>
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+<header class="bar">
+  <div class="brand"><span class="dot" id="dot"></span> Bokahli <span class="ver">v2 · phase 1</span></div>
+  <div class="ident" id="ident">connecting…</div>
+</header>
+
+<div id="banner" class="banner hidden"></div>
+
+<main id="log" class="log">
+  <div class="empty" id="empty">
+    <h1>Local inference, exact identity.</h1>
+    <p>Every response reports the artifact that produced it, the route that selected it, and what that route did or did not verify.</p>
+  </div>
+</main>
+
+<footer class="composer">
+  <div class="controls">
+    <label>Route
+      <select id="mode">
+        <option value="AUTO">AUTO</option>
+        <option value="PROFILE">PROFILE</option>
+        <option value="EXACT">EXACT</option>
+      </select>
+    </label>
+    <label>Max tokens <input id="maxTokens" type="number" value="512" min="1" max="8192" /></label>
+    <label>Temp <input id="temp" type="number" value="0.7" min="0" max="2" step="0.1" /></label>
+    <label class="chk"><input id="requireQualified" type="checkbox" /> require qualified</label>
+    <button id="clear" class="ghost" type="button">Clear</button>
+  </div>
+  <div class="input-row">
+    <textarea id="prompt" rows="2" placeholder="Ask something.  Enter to send · Shift+Enter for a newline"></textarea>
+    <button id="send" type="button">Send</button>
+  </div>
+</footer>
+
+<script src="/app.js" type="module"></script>
+</body>
+</html>

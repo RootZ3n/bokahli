@@ -1,0 +1,64 @@
+## Resource use at capture
+VmPeak:	82888676 kB
+VmSize:	82888676 kB
+VmHWM:	14932564 kB
+VmRSS:	10336924 kB
+RssAnon:	  674156 kB
+RssFile:	 9651604 kB
+RssShmem:	   11164 kB
+Threads:	39
+voluntary_ctxt_switches:	401691
+nonvoluntary_ctxt_switches:	3935
+
+cpu_time: 00:05:29
+cpu_pct_since_start: 0.3
+mem_pct: 31.7
+oom_score: 777
+cgroup: 0::/user.slice/user-1000.slice/session-46.scope
+
+## GPU attribution
+25179, 2100 MiB
+gpu_total_used_mib: 2787 MiB
+gpu_free_mib: 9086 MiB
+
+## NOTE ON LOGGING (material finding)
+fd 1 and fd 2 both point to pipe:[1834093], the write end of the pipe to `head -30`.
+`head` exited after consuming 30 lines on 2026-08-19. The read end is closed.
+=> The process has had no viable stdout/stderr sink for ~23h50m.
+=> No startup log, no runtime log, no error log exists for this process.
+=> The model load report (layer offload, VRAM alloc, KV cache size) is unrecoverable.
+This is the primary justification for replacing it with a journald-backed unit.
+
+## Live server state at capture
+GET /health  -> {"status":"ok"}
+GET /metrics -> HTTP 501
+{
+  "build_info": "b10505-ee4c505a4",
+  "model_path": "/home/zen/models/Qwen_Qwen3.5-35B-A3B-Q2_K.gguf",
+  "model_ftype": "Q2_K - Medium",
+  "total_slots": 4,
+  "n_ctx": 4096,
+  "modalities": {
+    "vision": false,
+    "video": false,
+    "audio": false
+  },
+  "endpoint_props": false,
+  "endpoint_slots": true
+}
+
+## Public identity currently exposed by the backend (the defect Bokahli must fix)
+{
+  "id": "/home/zen/models/Qwen_Qwen3.5-35B-A3B-Q2_K.gguf",
+  "owned_by": "llamacpp",
+  "meta": {
+    "vocab_type": 2,
+    "n_vocab": 248320,
+    "n_ctx": 4096,
+    "n_ctx_train": 262144,
+    "n_embd": 2048,
+    "n_params": 35505251456,
+    "size": 13495788032,
+    "ftype": "Q2_K - Medium"
+  }
+}

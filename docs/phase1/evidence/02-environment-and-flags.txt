@@ -1,0 +1,77 @@
+## Environment (inference-relevant; secrets redacted by pattern)
+DEBUGINFOD_IMA_CERT_PATH=/etc/keys/ima:
+DEBUGINFOD_URLS=ima:enforcing https://debuginfod.fedoraproject.org/ ima:ignore 
+EDITOR=/usr/bin/micro
+EGL_PLATFORM=tty
+GAMESCOPE_WSI_HIDE_PRESENT_EXT=1
+HOME=/home/zen
+_=/home/zen/llama.cpp/build/bin/llama-server
+IBUS_ENABLE_SYNC_MODE=2
+KDEDIRS=/usr
+LANG=en_US.utf8
+LC_ADDRESS=en_US.utf8
+LC_IDENTIFICATION=en_US.utf8
+LC_MEASUREMENT=en_US.utf8
+LC_MONETARY=en_US.utf8
+LC_NAME=en_US.utf8
+LC_NUMERIC=en_US.utf8
+LC_PAPER=en_US.utf8
+LC_TELEPHONE=en_US.utf8
+LC_TIME=en_US.utf8
+LESSOPEN=||/usr/bin/lesspipe.sh %s
+LOGNAME=zen
+MOTD_SHOWN=pam
+MOZ_GMP_PATH=/usr/lib64/mozilla/plugins/gmp-gmpopenh264/system-installed
+NVCC_CCBIN=g++-15
+OBS_VKCAPTURE=1
+OBS_VKCAPTURE_QUIET=1
+PATH=/home/zen/.local/bin:/home/zen/bin:/usr/local/bin:/usr/bin
+PWD=/home/zen
+SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS=0
+SHELL=/bin/bash
+SHLVL=1
+SSH_ASKPASS=/usr/bin/ksshaskpass
+SSH_CLIENT=100.84.209.89 46926 22
+SSH_CONNECTION=100.84.209.89 46926 100.115.140.2 22
+STEAM_FRAME_FORCE_CLOSE=1
+USER=zen
+
+### Inference-relevant subset explicitly checked (absent = unset)
+CUDA_VISIBLE_DEVICES = <unset>
+GGML_CUDA_ENABLE_UNIFIED_MEMORY = <unset>
+LLAMA_ARG_MODEL = <unset>
+LLAMA_ARG_HOST = <unset>
+LLAMA_ARG_PORT = <unset>
+LLAMA_ARG_N_GPU_LAYERS = <unset>
+LLAMA_ARG_CTX_SIZE = <unset>
+LLAMA_ARG_THREADS = <unset>
+LLAMA_CACHE = <unset>
+OMP_NUM_THREADS = <unset>
+GGML_CUDA_NO_VMM = <unset>
+GGML_CUDA_FORCE_MMQ = <unset>
+HF_TOKEN = <unset>
+HF_HOME = <unset>
+LD_LIBRARY_PATH = <unset>
+
+## Model artifact under -m
+model_path: /home/zen/models/Qwen_Qwen3.5-35B-A3B-Q2_K.gguf
+model_sha256: 49533d47d170c0dad00e38f3aab0d8a5556654caa8144a7e6f3480c8e6761201
+model_size_bytes: 13506778944
+model_mtime: 2026-08-19 05:13:12.843648184 -0500
+model_inode: 4234607
+NOTE: digest recomputed in Phase 0 at 05:15 local; matches HF download metadata.
+
+## Resolved flags (as parsed from cmdline)
+-m            /home/zen/models/Qwen_Qwen3.5-35B-A3B-Q2_K.gguf
+--host        0.0.0.0        <-- ALL INTERFACES (to be replaced with 127.0.0.1)
+--port        8080
+-ngl          999            <-- offload all layers that are eligible
+--cpu-moe                    <-- expert tensors kept in system RAM
+-c            4096           <-- context per... (see /props: 4096 per slot, 4 slots)
+--flash-attn  on
+--reasoning   off
+(not passed)  --alias        <-- NO STABLE ALIAS: id is the filesystem path
+(not passed)  --metrics      <-- /metrics returns 501
+(not passed)  --parallel     <-- defaulted to 4 slots
+(not passed)  --api-key      <-- NO AUTHENTICATION
+(not passed)  --threads      <-- defaulted

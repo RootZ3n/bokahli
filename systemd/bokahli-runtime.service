@@ -1,0 +1,69 @@
+# Bokahli v2 — inference runtime (llama.cpp, pinned build b10505-ee4c505a4)
+#
+# Loopback only. This service is never routable: Bokahli is its sole client and
+# reaches it over 127.0.0.1. It carries no authentication of its own because it
+# is not reachable from anywhere that would need to authenticate.
+#
+# Install: scripts/install-units.sh
+[Unit]
+Description=Bokahli inference runtime (llama.cpp %i)
+Documentation=file:/home/zen/repos/bokahli/docs/phase1/RUNTIME.md
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=exec
+EnvironmentFile=%h/.config/bokahli/shared.env
+EnvironmentFile=%h/.config/bokahli/runtime.env
+WorkingDirectory=%h
+
+# Explicit context and slot settings — never defaulted.
+# --alias gives the backend a stable served name so Bokahli can attest identity
+#   instead of trusting a filesystem path.
+# --metrics enables the Prometheus endpoint Bokahli's telemetry authority needs.
+# --no-webui removes llama.cpp's own UI: Bokahli owns the human surface.
+# Prompt contents are NOT logged: -v / --log-verbose is deliberately absent.
+ExecStart=/home/zen/llama.cpp/build/bin/llama-server \
+    --model ${BOKAHLI_MODEL_PATH} \
+    --alias ${BOKAHLI_MODEL_ALIAS} \
+    --host 127.0.0.1 \
+    --port ${BOKAHLI_RUNTIME_PORT} \
+    --ctx-size ${BOKAHLI_CTX} \
+    --parallel ${BOKAHLI_SLOTS} \
+    --n-gpu-layers 999 \
+    --cpu-moe \
+    --flash-attn on \
+    --reasoning off \
+    --metrics \
+    --api-key ${BOKAHLI_RUNTIME_API_KEY} \
+    --no-webui \
+    --log-timestamps
+
+# Readiness gate: `systemctl start` does not return until the model is loaded
+# and /health reports ok, so dependent units never start against a cold runtime.
+ExecStartPost=/bin/bash -c 'for i in $(seq 1 240); do curl -sf --max-time 2 http://127.0.0.1:${BOKAHLI_RUNTIME_PORT}/health >/dev/null && exit 0; sleep 1; done; echo "runtime did not become ready within 240s" >&2; exit 1'
+
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=300
+TimeoutStopSec=45
+KillMode=mixed
+KillSignal=SIGTERM
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=bokahli-runtime
+
+# Modest hardening. The process needs the NVIDIA devices and the model file, so
+# it is not sandboxed aggressively; these are the restrictions that cost nothing.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectControlGroups=true
+ProtectKernelTunables=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=default.target

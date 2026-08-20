@@ -1,0 +1,55 @@
+## Open file descriptors
+0 -> pipe:[1824471]
+1 -> pipe:[1834093]
+2 -> pipe:[1834093]
+3 -> anon_inode:[eventfd]
+4 -> pipe:[1830816]
+5 -> pipe:[1830816]
+6 -> pipe:[1830817]
+7 -> pipe:[1830817]
+8 -> /dev/nvidiactl
+9 -> /dev/nvidia-uvm
+10 -> /dev/nvidia-uvm
+11 -> /dev/nvidia0
+12 -> /dev/nvidia0
+13 -> /dev/nvidia0
+14 -> /dev/nvidia0
+15 -> socket:[1830827]
+16 -> anon_inode:[eventfd]
+17 -> /dev/nvidia0
+18 -> /dev/nvidia0
+19 -> /dev/nvidia0
+20 -> /dev/nvidia0
+21 -> /dev/nvidia0
+22 -> /dev/nvidia0
+23 -> anon_inode:[eventfd]
+24 -> /dev/nvidia0
+25 -> /dev/nvidia0
+26 -> /dev/nvidia0
+27 -> /dev/nvidia0
+28 -> /dev/nvidia0
+29 -> /dev/nvidia0
+30 -> /dev/nvidia0
+31 -> /dev/nvidia0
+32 -> pipe:[1834096]
+33 -> pipe:[1834096]
+34 -> anon_inode:[eventfd]
+35 -> pipe:[1834097]
+36 -> pipe:[1834097]
+37 -> socket:[1834098]
+
+fd_count: 38
+fd_limit_soft: 1024
+fd_limit_hard: 1048576
+
+## Regular files held open
+
+## Sockets held (inode -> ss mapping)
+LISTEN 0      512                       0.0.0.0:8080  0.0.0.0:* users:(("llama-server",pid=25179,fd=37))
+
+## Listening socket detail
+State  Recv-Q Send-Q              Local Address:Port  Peer Address:PortProcess                                                                                                                                                                                
+LISTEN 0      512                       0.0.0.0:8080       0.0.0.0:*    users:(("llama-server",pid=25179,fd=37)) uid:1000 ino:1834098 sk:1013 cgroup:/user.slice/user-1000.slice/session-46.scope <->                                                         
+
+## Established connections owned by this pid
+(none currently established)
