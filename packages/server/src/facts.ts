@@ -72,6 +72,19 @@ const PLACEMENT_TTL_MS = 5000;
  */
 const ATTESTATION_LIFETIME_MS = 60_000;
 
+/**
+ * How long an *unverified* tokenizer probe result may be reused.
+ *
+ * A verified probe is cached for the life of the backend instance: it describes
+ * bytes and a process, and neither changes without the instance changing. A
+ * failed one is different. A probe that failed because the backend was briefly
+ * unreachable used to be cached on the same terms, so a two-second outage left
+ * the deployment reporting unproven token counts until the next restart —
+ * permanent damage from a transient fault, and invisible, because nothing
+ * retried. Failures expire; successes do not.
+ */
+const FAILED_PROBE_TTL_MS = 30_000;
+
 export interface FactsProviderOptions {
   readonly backend: LlamaBackend;
   /**
@@ -207,11 +220,27 @@ export function attestationFor(
   };
 }
 
+interface ProbeCacheEntry {
+  readonly at: number;
+  /** Null means "keep for the life of this instance". */
+  expiresAt: number | null;
+  readonly probe: Promise<RuntimeTokenizerProof>;
+}
+
 export class QualificationFactsProvider implements FactsSource {
   readonly #opts: FactsProviderOptions;
   readonly #now: () => Date;
-  readonly #artifactCache = new Map<string, ArtifactFactsCache>();
-  readonly #probeCache = new Map<string, RuntimeTokenizerProof>();
+  readonly #artifactCache = new Map<string, Promise<ArtifactFactsCache>>();
+  /**
+   * Tokenizer probes, keyed by (artifact digest, backend instance).
+   *
+   * The value is a Promise, not a result. Five concurrent `collect()` calls
+   * against a cold cache each saw `null` and each launched the full sequence —
+   * measured at 27 backend calls for a five-case suite, and the production
+   * suite is ninety-four. Storing the in-flight promise makes the second caller
+   * wait for the first instead of racing it.
+   */
+  readonly #probeCache = new Map<string, ProbeCacheEntry>();
   #instanceCache: InstanceFactsCache | null = null;
   #placement: { at: number; instanceId: string | null; value: DevicePlacement } | null = null;
   #generation = 0;
@@ -232,19 +261,27 @@ export class QualificationFactsProvider implements FactsSource {
   async #artifactFacts(artifact: InternalArtifact): Promise<ArtifactFactsCache> {
     const hit = this.#artifactCache.get(artifact.digest);
     if (hit) return hit;
-    let entry: ArtifactFactsCache;
-    try {
-      entry = { tokenizerMetadata: await readGgufTokenizerMetadata(artifact.artifactPath), readFailure: null };
-    } catch (err) {
-      // The message may name a path, and paths never leave this process. Only
-      // the failure class is kept.
-      entry = {
-        tokenizerMetadata: null,
-        readFailure: `artifact tokenizer metadata unreadable (${(err as Error).name})`,
-      };
-    }
-    this.#artifactCache.set(artifact.digest, entry);
-    return entry;
+    // The promise is installed before the first await, so concurrent callers
+    // join this read instead of starting their own. Checking a cache, awaiting,
+    // and then filling it is not caching — every caller that arrives during the
+    // await misses.
+    const pending = (async (): Promise<ArtifactFactsCache> => {
+      try {
+        return {
+          tokenizerMetadata: await readGgufTokenizerMetadata(artifact.artifactPath),
+          readFailure: null,
+        };
+      } catch (err) {
+        // The message may name a path, and paths never leave this process. Only
+        // the failure class is kept.
+        return {
+          tokenizerMetadata: null,
+          readFailure: `artifact tokenizer metadata unreadable (${(err as Error).name})`,
+        };
+      }
+    })();
+    this.#artifactCache.set(artifact.digest, pending);
+    return pending;
   }
 
   /** Re-read the instance so a restart during a request is detectable after it. */
@@ -362,24 +399,61 @@ export class QualificationFactsProvider implements FactsSource {
     // probe describes one process reading one vocabulary, and it does not
     // survive either changing.
     const probeKey = `${artifact.digest}\u0000${instance.instanceId ?? ''}`;
-    let proof = this.#probeCache.get(probeKey) ?? null;
-    if (proof === null && instance.instanceId !== null && art.tokenizerMetadata !== null) {
-      proof = await probeRuntimeTokenizer(
-        {
-          artifactTokens: await this.#opts.artifactTokens(artifact),
-          artifactTokenTypes: await this.#opts.artifactTokenTypes(artifact),
-          backendInstanceId: instance.instanceId,
-          canarySuite: this.#opts.canarySuite(artifact),
-          artifactDigest: artifact.digest,
-          tokenizerMetadataDigest: art.tokenizerMetadata?.metadataDigest ?? null,
-        },
-        {
-          tokenize: (text, o) => this.#opts.backend.tokenize(text, o),
-          detokenize: (ids) => this.#opts.backend.detokenize(ids),
-          now,
-        },
-      );
-      this.#probeCache.set(probeKey, proof);
+    let proof: RuntimeTokenizerProof | null = null;
+    if (instance.instanceId !== null && art.tokenizerMetadata !== null) {
+      const nowMs = this.#now().getTime();
+      let entry = this.#probeCache.get(probeKey);
+      // Expiry is decided at lookup, so a stale failure is never served once
+      // and then evicted — it is evicted and re-probed.
+      if (entry !== undefined && entry.expiresAt !== null && nowMs >= entry.expiresAt) {
+        this.#probeCache.delete(probeKey);
+        entry = undefined;
+      }
+      if (entry === undefined) {
+        const instanceId = instance.instanceId;
+        const metadataDigest = art.tokenizerMetadata?.metadataDigest ?? null;
+        // Every await lives inside the promise, and the promise is installed in
+        // the same synchronous turn as the lookup above. Awaiting the token
+        // table first and *then* filling the cache meant five concurrent
+        // callers all missed and all launched the sequence — measured at 27
+        // backend calls for a five-case suite, and the production suite is 94.
+        const created: ProbeCacheEntry = {
+          at: nowMs,
+          expiresAt: null,
+          probe: (async () =>
+            probeRuntimeTokenizer(
+              {
+                artifactTokens: await this.#opts.artifactTokens(artifact),
+                artifactTokenTypes: await this.#opts.artifactTokenTypes(artifact),
+                backendInstanceId: instanceId,
+                canarySuite: this.#opts.canarySuite(artifact),
+                artifactDigest: artifact.digest,
+                tokenizerMetadataDigest: metadataDigest,
+              },
+              {
+                tokenize: (text, o) => this.#opts.backend.tokenize(text, o),
+                detokenize: (ids) => this.#opts.backend.detokenize(ids),
+                // The second instance reading, taken after the sequence. A
+                // restart in the middle of ninety-four calls must not produce a
+                // proof stamped with the process that was there at the start.
+                readBackendInstanceId: () => this.currentInstanceId(),
+                now,
+              },
+            ))(),
+        };
+        this.#probeCache.set(probeKey, created);
+        entry = created;
+      }
+      proof = await entry.probe;
+      // Successes are permanent for this instance — they describe bytes and a
+      // process, and neither changes without the instance changing. Failures
+      // expire, so a transient outage cannot leave the deployment unproven for
+      // ever with nothing retrying.
+      const verified =
+        proof.matches &&
+        proof.canary?.encodeCanaryVerified === true &&
+        proof.canary?.decodeCanaryVerified === true;
+      entry.expiresAt = verified ? null : entry.at + FAILED_PROBE_TTL_MS;
     }
 
     const tokenizer: TokenizerIdentity = resolveTokenizerIdentity({

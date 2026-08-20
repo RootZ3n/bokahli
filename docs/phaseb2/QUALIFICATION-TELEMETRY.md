@@ -159,6 +159,68 @@ Multi-id detokenization is deliberately not canaried: `common_detokenize`
 applies spacing rules on top of the vocabulary, and an expectation derived from
 the token table could fail on a correct deployment.
 
+**Exactly what decode coverage does not reach.** The decode side pins one id per
+case, so it establishes `id → bytes` for the sampled entries and nothing else.
+It does not cover: the concatenation of several ids; ids of type UNUSED or
+UNDEFINED (padding, rendered as the empty string); tokens whose bytes are not
+valid UTF-8 in isolation — two of 248,320 on this artifact, and both sides
+render those as U+FFFD so a comparison would pass by mutual failure; and any
+entry outside the pinned sample, which is 54 of 248,320 chosen deterministically
+plus every CONTROL and USER_DEFINED token. The sampled probe adds a further 21
+comparable entries spread across the range. Byte-level decoding itself *is*
+covered exhaustively — all 256 byte mappings are checked against an independent
+reconstruction of GPT-2's `bytes_to_unicode`, offline.
+
+#### What the reader beneath it guarantees
+
+Expectations are only as good as the file they were read from, so the GGUF
+reader fails closed rather than choosing:
+
+- **Duplicate metadata keys are refused by every reader.** They used not to be,
+  and the two readers resolved them differently — the metadata digest kept the
+  last occurrence while the token-table reader stopped at the first. One file
+  could therefore produce a digest over one vocabulary and decode expectations
+  over another, which is the exact substitution a content digest exists to
+  prevent.
+- **The token-type array must be parallel to the token table**, or it is not a
+  type table. A short one left entries past its end untyped and silently changed
+  which ids a canary pins.
+- **An unknown type code is not assumed to behave like a normal token.** Only
+  NORMAL, UNKNOWN, CONTROL, USER_DEFINED and BYTE are comparable.
+- **The whole key-value block is parsed** even once the wanted keys are in hand,
+  so a file the metadata reader rejects cannot still yield a usable token table.
+- Header window, string length, and array element counts are all capped, and
+  every length is bounds-checked before anything is allocated.
+
+#### What the transport guarantees
+
+- **A token list is refused, never filtered.** `[10, null, 11]` and
+  `[10, "JUNK", 11]` were being reduced to `[10, 11]` and compared equal — a
+  check whose premise is exact agreement, quietly discarding part of the answer
+  first. Any element that is not a non-negative safe integer below the declared
+  vocabulary size makes the whole response uncomparable.
+- **Bodies are bounded at 1 MiB.** A backend answering `/detokenize` with 50 MB
+  was measured accepted in 192 ms, once per probe, ninety-four times a sequence.
+- `add_special: false` and `parse_special: true` are sent explicitly and are
+  part of the canary payload hash, so a suite generated under one pair cannot be
+  checked under another.
+
+#### Cost
+
+The sequence is 40 encode calls, 54 decode calls, and ~21 sampled decodes: 116
+backend calls, measured at **59 ms** against the live deployment, plus ~346 ms
+to read the token table and type array out of the artifact. It runs **once per
+backend instance**, not per request. Concurrent requests share one sequence —
+the in-flight promise is installed before the first await, because checking a
+cache, awaiting, and then filling it is not caching. A verified result is kept
+for the life of the instance; a *failed* one expires after 30 s, so a brief
+outage cannot leave the deployment permanently unproven with nothing retrying.
+
+The backend instance is read **before and after** the sequence. Any disagreement,
+or an unknown reading at either end, unbinds everything the sequence produced:
+116 calls is long enough for a restart to land in the middle, and a proof
+stamped with the process that was there at the start would describe neither.
+
 Neither `/tokenize` nor `/detokenize` runs the model: no decode, no slot, no GPU
 work.
 
@@ -464,12 +526,20 @@ an unattributable answer that ships with a caveat is an answer that will be read
 without the caveat. Both are `retryableLocal` and neither is a statement about
 the model — a qualification campaign must **drop** such an attempt, not score it.
 
-Enforcement applies where something is actually being claimed. A response whose
-`completeness` is `unattested` already says in every field that identity was not
-proven, so there is no stale attestation being *used*; gating it too would turn a
-degraded provenance probe into a total outage, which is how evidence features get
-switched off. The lifetime record is published for every routed request either
-way.
+**Strict paths fail closed; permissive chat stays available.** Ordinary chat may
+return an explicitly unattested answer where policy allows a degraded one — the
+response says so in every field, nothing downstream can build on it, and gating
+it would turn a degraded `/proc` read into a total outage, which is how evidence
+features get switched off.
+
+A request that asks a question about qualification does not get that reading.
+EXACT, `requireQualified: true`, and any named task class — at the top level for
+AUTO and EXACT, and inside `requirements` for PROFILE, which is the shape that
+was almost missed — refuse when the attestation is absent, when the backend
+instance cannot be established, or when either has lapsed. "We could not
+establish the evidence" is an answer to those requests, not a footnote on a
+completion. The lifetime record is published for every routed request either
+way, including on the escalation that discards an unattributable one.
 
 ## API compatibility
 
@@ -529,6 +599,11 @@ key. Image components are basenames. Artifact-read failures report the error
   does not re-observe placement or image identity at completion; a backend
   evicted from the GPU without restarting would not be caught until the next
   request.
+- **A restart *between* the last probe and the first token.** Continuity is
+  checked across the probe sequence and again across the request, but the two
+  windows meet at a seam. A restart landing exactly in it would be caught by the
+  request's own admission-to-completion check, not by the probe's.
+- **Multi-token decode and the entries outside the pinned sample**, as above.
 - **`process-mapped` image binding in production**, so `completeness` will read
   `partial` on this deployment until `/proc/<pid>/maps` is readable. That is the
   intended behaviour, not a bug to work around: it is what keeps `configured-tree`

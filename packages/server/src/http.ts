@@ -8,6 +8,7 @@ import {
   bokahliError,
   ERROR_STATUS,
   isPathLike,
+  type AttemptLifetime,
   type BokahliChatMessage,
   type BokahliRequest,
   type BokahliResponse,
@@ -392,7 +393,29 @@ async function handleChat(
     // in a healthy deployment the two conditions coincide: the real provider
     // derives completeness from the same attested flag.
     const claimsAttestation = served.attested && attestation.completeness !== 'unattested';
-    if (claimsAttestation && (!Number.isFinite(expiresMs) || Date.parse(admittedAt) > expiresMs)) {
+
+    // Strict paths do not get the permissive reading.
+    //
+    // Ordinary chat may be served explicitly unattested when policy allows a
+    // degraded answer — the response says so in every field and nothing
+    // downstream can build on it. A request that asks for qualification, names
+    // a task class, or pins an exact identity is asking a different question,
+    // and "we could not establish the evidence" must be an answer to it rather
+    // than a footnote on a completion. So for those, an absent attestation or
+    // an unknown backend instance refuses exactly as a stale one does.
+    const strict = isStrictRequest(spec);
+    const strictUnmet: string[] = strict
+      ? [
+          ...(attestation.completeness === 'unattested'
+            ? ['the served identity carries no attestation at all']
+            : []),
+          ...(instanceAtAdmission === null
+            ? ['the backend instance could not be established, so nothing can be bound to it']
+            : []),
+        ]
+      : [];
+    const stale = !Number.isFinite(expiresMs) || Date.parse(admittedAt) > expiresMs;
+    if (strictUnmet.length > 0 || ((claimsAttestation || strict) && stale)) {
       return finishNonRouted(
         deps, res, requestId, receivedAt, t0, spec,
         {
@@ -400,17 +423,30 @@ async function handleChat(
           mode: spec.mode,
           reason: 'ATTESTATION_STALE',
           detail:
-            `the attestation for ${served.modelId} was observed at ${attestation.observedAt} ` +
-            `and expired at ${attestation.expiresAt}; this request was admitted at ` +
-            `${admittedAt}. Serving it would attach evidence to a completion that the ` +
-            'evidence no longer describes.',
-          unmet: [
-            {
-              requirement: 'attestation.freshAtAdmission',
-              required: 'true',
-              actual: 'false',
-            },
-          ],
+            strictUnmet.length > 0
+              ? `this request requires attested evidence and ${strictUnmet.join('; ')}. ` +
+                'Bokahli refuses rather than answering a question about qualification with ' +
+                'a completion it cannot stand behind.'
+              : `the attestation for ${served.modelId} was observed at ${attestation.observedAt} ` +
+                `and expired at ${attestation.expiresAt}; this request was admitted at ` +
+                `${admittedAt}. Serving it would attach evidence to a completion that the ` +
+                'evidence no longer describes.',
+          unmet:
+            strictUnmet.length > 0
+              ? [
+                  {
+                    requirement: 'attestation.presentAtAdmission',
+                    required: 'true',
+                    actual: 'false',
+                  },
+                ]
+              : [
+                  {
+                    requirement: 'attestation.freshAtAdmission',
+                    required: 'true',
+                    actual: 'false',
+                  },
+                ],
           considered: [],
           authorityNote:
             'Bokahli emits a typed escalation and stops. Re-attestation happens on the ' +
@@ -591,11 +627,7 @@ async function streamChat(deps: AppDeps, res: ServerResponse, a: ExecArgs): Prom
   // Headers and deltas are already on the wire, so the terminal event carries
   // the verdict. A client that consumed the text learns, in the same stream,
   // that it must not be treated as an attested completion.
-  if (
-    a.served.attested &&
-    a.served.qualificationFacts.attestation.completeness !== 'unattested' &&
-    telemetry.attemptLifetime?.verdict === 'infrastructure-invalid'
-  ) {
+  if (enforcesAttribution(a) && telemetry.attemptLifetime?.verdict === 'infrastructure-invalid') {
     const escalation = attemptNotAttributableEscalation(a.spec.mode, telemetry);
     deps.telemetry.log('warn', 'attempt.notAttributable', {
       requestId: a.requestId,
@@ -714,8 +746,7 @@ async function bufferChat(deps: AppDeps, res: ServerResponse, a: ExecArgs): Prom
   // *enforced* where the response would otherwise present an attested identity.
   // An unattested response claims nothing to begin with.
   if (
-    a.served.attested &&
-    a.served.qualificationFacts.attestation.completeness !== 'unattested' &&
+    enforcesAttribution(a) &&
     telemetry.attemptLifetime?.verdict === 'infrastructure-invalid'
   ) {
     deps.telemetry.log('warn', 'attempt.notAttributable', {
@@ -728,7 +759,7 @@ async function bufferChat(deps: AppDeps, res: ServerResponse, a: ExecArgs): Prom
     return finishNonRouted(
       deps, res, a.requestId, a.receivedAt, a.t0, a.spec,
       attemptNotAttributableEscalation(a.spec.mode, telemetry),
-      a.routeMs, a.gpu, a.dialect,
+      a.routeMs, a.gpu, a.dialect, telemetry.attemptLifetime,
     );
   }
 
@@ -784,6 +815,40 @@ async function readEffectiveSampler(deps: AppDeps, a: ExecArgs): Promise<Backend
   } catch {
     return null;
   }
+}
+
+/**
+ * Does this request depend on attested evidence being established?
+ *
+ * PROFILE carries its qualification demand inside `requirements`, AUTO and
+ * EXACT carry it at the top level, and EXACT is strict by construction: pinning
+ * an identity is a claim about identity. Reading only one of those shapes would
+ * have left PROFILE requests with `requireQualified: true` on the permissive
+ * path, which is the exact request that must not be.
+ */
+function isStrictRequest(spec: RouteSpec): boolean {
+  if (spec.mode === 'EXACT') return true;
+  if (spec.mode === 'PROFILE') {
+    return spec.requirements.requireQualified === true ||
+      spec.requirements.requiredTaskClass !== undefined;
+  }
+  return spec.requireQualified === true || spec.taskClass !== undefined;
+}
+
+/**
+ * Whether an unattributable completion must be refused rather than annotated.
+ *
+ * Strict requests — EXACT, qualification-required, or task-class-scoped — always
+ * enforce: they asked a question that a completion from an unattested process
+ * does not answer. Ordinary chat enforces whenever the response would otherwise
+ * present an attested identity, and stays available when it would not.
+ */
+function enforcesAttribution(a: ExecArgs): boolean {
+  return (
+    isStrictRequest(a.spec) ||
+    (a.served.attested &&
+      a.served.qualificationFacts.attestation.completeness !== 'unattested')
+  );
 }
 
 async function buildTelemetry(
@@ -939,6 +1004,7 @@ function finishNonRouted(
   routeMs: number,
   gpu: GpuSnapshot | null,
   dialect: Dialect,
+  lifetime: AttemptLifetime | null = null,
 ): void {
   const telemetry: RequestTelemetry = {
     requestId,
@@ -973,10 +1039,13 @@ function finishNonRouted(
       seedSupport: 'not_requested',
       deterministicOutputGuaranteed: false,
     },
-    // No backend was reached, so there is no attempt whose lifetime could be
-    // bounded. Null says that; a synthetic 'valid' would claim an attestation
-    // survived a request that never had one.
-    attemptLifetime: null,
+    // Null when no backend was reached — there is no attempt whose lifetime
+    // could be bounded, and a synthetic 'valid' would claim an attestation
+    // survived a request that never had one. Non-null when a request *did*
+    // execute and was then refused for its lifetime: the verdict has to travel
+    // in telemetry, or a consumer reading only telemetry sees an escalation
+    // with no record of why the attempt was dropped.
+    attemptLifetime: lifetime ?? null,
     servedContextTokens: null,
     contextUtilisation: null,
     runtimeBuild: null,

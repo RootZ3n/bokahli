@@ -47,7 +47,12 @@ export interface CanaryProbeSources {
   /** POST /tokenize with the suite's pinned settings. Returns token ids. */
   readonly tokenize: (
     text: string,
-    opts: { readonly addSpecial: boolean; readonly parseSpecial: boolean },
+    opts: {
+      readonly addSpecial: boolean;
+      readonly parseSpecial: boolean;
+      /** Ids at or above this are not ids for this vocabulary. */
+      readonly vocabSize?: number;
+    },
   ) => Promise<readonly number[]>;
   /** POST /detokenize. Returns the text for those ids. */
   readonly detokenize: (ids: readonly number[]) => Promise<string>;
@@ -118,11 +123,81 @@ export function validateCanarySuite(suite: unknown): readonly string[] {
   if (!Array.isArray(s.decode) || s.decode.length === 0) errs.push('suite has no decode cases');
   if (typeof s.payloadHash !== 'string') errs.push('suite carries no payload hash');
   if (errs.length > 0) return errs;
+
+  // Nothing may travel in a suite that the hash does not cover. The canonical
+  // payload names its fields explicitly — which is what makes it stable against
+  // key reordering — and the cost of that is that a field nobody listed would
+  // ride along unhashed. Unknown keys are therefore refused outright rather
+  // than ignored, so adding a field to this contract forces adding it to the
+  // preimage.
+  const SUITE_KEYS = new Set([
+    'schemaVersion', 'suiteId', 'artifactDigest', 'tokenizerMetadataDigest', 'vocabSize',
+    'encodeSettings', 'encodeReference', 'decodeReference', 'encode', 'decode',
+    'payloadHash', 'generatedAt', 'coverage', 'note',
+  ]);
+  const ENCODE_KEYS = new Set(['id', 'note', 'inputBase64', 'expectedIds']);
+  const DECODE_KEYS = new Set(['id', 'note', 'tokenId', 'expectedBytesBase64']);
+  const REF_KEYS = new Set([
+    'method', 'generatorComponents', 'generatorDigest', 'generatorBuild',
+    'producedByBackendInstanceId', 'note',
+  ]);
+  const unknown = (obj: object, allowed: Set<string>, where: string): void => {
+    for (const k of Object.keys(obj)) {
+      if (!allowed.has(k)) errs.push(`unknown field ${where}.${k} would not be covered by the hash`);
+    }
+  };
+  unknown(s, SUITE_KEYS, 'suite');
+  unknown(s.encodeReference ?? {}, REF_KEYS, 'encodeReference');
+  unknown(s.decodeReference ?? {}, REF_KEYS, 'decodeReference');
+  for (const c of s.encode) unknown(c, ENCODE_KEYS, `encode[${c.id}]`);
+  for (const c of s.decode) unknown(c, DECODE_KEYS, `decode[${c.id}]`);
+
   const seen = new Set<string>();
   for (const c of [...s.encode, ...s.decode]) {
     if (seen.has(c.id)) errs.push(`duplicate canary case id ${c.id}`);
     seen.add(c.id);
   }
+
+  // Two cases over the same bytes that expect different ids cannot both be
+  // right. One of them fails for ever, which reads as a tokenizer problem and
+  // is a corpus problem — the kind of permanent red that gets a check disabled.
+  const byInput = new Map<string, readonly number[]>();
+  for (const c of s.encode) {
+    const prior = byInput.get(c.inputBase64);
+    if (prior !== undefined && prior.join(',') !== c.expectedIds.join(',')) {
+      errs.push(`encode case ${c.id} expects different ids for an input already pinned`);
+    }
+    byInput.set(c.inputBase64, c.expectedIds);
+  }
+  const byId = new Map<number, string>();
+  for (const c of s.decode) {
+    const prior = byId.get(c.tokenId);
+    if (prior !== undefined && prior !== c.expectedBytesBase64) {
+      errs.push(`decode case ${c.id} expects different bytes for an id already pinned`);
+    }
+    byId.set(c.tokenId, c.expectedBytesBase64);
+  }
+
+  // Ids must be ids: a negative or fractional expectation could never be met,
+  // and one at or beyond the declared vocabulary describes another vocabulary.
+  for (const c of s.encode) {
+    if (!Array.isArray(c.expectedIds) || c.expectedIds.length === 0) {
+      errs.push(`encode case ${c.id} pins no ids`);
+      continue;
+    }
+    for (const v of c.expectedIds) {
+      if (!Number.isSafeInteger(v) || v < 0 || v >= s.vocabSize) {
+        errs.push(`encode case ${c.id} pins ${String(v)}, which is not an id in this vocabulary`);
+        break;
+      }
+    }
+  }
+  for (const c of s.decode) {
+    if (!Number.isSafeInteger(c.tokenId) || c.tokenId < 0 || c.tokenId >= s.vocabSize) {
+      errs.push(`decode case ${c.id} names ${String(c.tokenId)}, not an id in this vocabulary`);
+    }
+  }
+
   const recomputed = canaryPayloadHash(s);
   if (recomputed !== s.payloadHash) {
     errs.push(
@@ -266,6 +341,7 @@ export async function verifyTokenizerCanary(
       got = await sources.tokenize(text, {
         addSpecial: suite.encodeSettings.addSpecial,
         parseSpecial: suite.encodeSettings.parseSpecial,
+        vocabSize: suite.vocabSize,
       });
     } catch (err) {
       encodeUsable = false;

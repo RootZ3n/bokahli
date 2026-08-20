@@ -117,6 +117,14 @@ export interface BackendTimings {
  * Client for one loopback llama-server. Bokahli is the sole client; the backend
  * has no authentication of its own and is unreachable off-host by construction.
  */
+/**
+ * Cap on a tokenizer probe response body.
+ *
+ * A tokenize/detokenize answer for a probe case is tens of bytes; a megabyte is
+ * four orders of magnitude of headroom and still a bound.
+ */
+const MAX_PROBE_BODY_BYTES = 1024 * 1024;
+
 export class LlamaBackend {
   readonly #baseUrl: string;
   readonly #pinnedBuild: string;
@@ -245,10 +253,12 @@ export class LlamaBackend {
    */
   async tokenize(
     text: string,
-    opts: { readonly addSpecial: boolean; readonly parseSpecial: boolean } = {
-      addSpecial: false,
-      parseSpecial: true,
-    },
+    opts: {
+      readonly addSpecial: boolean;
+      readonly parseSpecial: boolean;
+      /** Refuse any id at or above this. Omitted means only sanity bounds apply. */
+      readonly vocabSize?: number;
+    } = { addSpecial: false, parseSpecial: true },
   ): Promise<readonly number[]> {
     // Both settings are sent explicitly. llama-server defaults `add_special`
     // to false and `parse_special` to true, and a canary generated under one
@@ -261,15 +271,78 @@ export class LlamaBackend {
       add_special: opts.addSpecial,
       parse_special: opts.parseSpecial,
     });
-    const body = (await r.json()) as { tokens?: unknown };
-    return Array.isArray(body.tokens) ? (body.tokens as number[]).filter(Number.isInteger) : [];
+    const body = (await this.#json(r)) as { tokens?: unknown };
+    if (!Array.isArray(body.tokens)) {
+      throw new BackendUnavailableError('backend /tokenize did not return a token array');
+    }
+    // Filtering was the bug. `[10, null, 11]` and `[10, "JUNK", 11]` were
+    // silently reduced to `[10, 11]` and then compared equal to the canary — so
+    // a runtime that returned an extra element the JSON layer could not express
+    // as an integer passed a check whose whole premise is exact agreement.
+    // Every element is now either a real id or the response is not an answer.
+    const out: number[] = [];
+    for (const v of body.tokens as unknown[]) {
+      if (typeof v !== 'number' || !Number.isSafeInteger(v) || v < 0) {
+        throw new BackendUnavailableError(
+          'backend /tokenize returned a value that is not a token id; the response is ' +
+            'not comparable and is refused rather than filtered',
+        );
+      }
+      if (opts.vocabSize !== undefined && v >= opts.vocabSize) {
+        throw new BackendUnavailableError(
+          `backend /tokenize returned id ${v}, outside the ${opts.vocabSize}-entry vocabulary`,
+        );
+      }
+      out.push(v);
+    }
+    return out;
   }
 
   /** Text for a list of token ids, from the runtime's loaded vocabulary. */
   async detokenize(ids: readonly number[]): Promise<string> {
     const r = await this.#post('/detokenize', { tokens: [...ids] });
-    const body = (await r.json()) as { content?: unknown };
-    return typeof body.content === 'string' ? body.content : '';
+    const body = (await this.#json(r)) as { content?: unknown };
+    if (typeof body.content !== 'string') {
+      throw new BackendUnavailableError('backend /detokenize did not return text');
+    }
+    return body.content;
+  }
+
+  /**
+   * Read a JSON body with a hard size bound.
+   *
+   * `r.json()` reads whatever arrives. A backend answering /detokenize with 50
+   * MB — measured, 192 ms — buys memory in the API process for the price of one
+   * probe, and the probe sequence makes ~95 of them. The backend is our own
+   * loopback process and "ours would never" is not a bound.
+   */
+  async #json(r: Response): Promise<unknown> {
+    const body = r.body;
+    if (body === null) throw new BackendUnavailableError('backend returned an empty body');
+    const reader = body.getReader();
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value === undefined) continue;
+        size += value.byteLength;
+        if (size > MAX_PROBE_BODY_BYTES) {
+          throw new BackendUnavailableError(
+            `backend response exceeded ${MAX_PROBE_BODY_BYTES} bytes`,
+          );
+        }
+        chunks.push(value);
+      }
+    } finally {
+      await reader.cancel().catch(() => undefined);
+    }
+    try {
+      return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    } catch {
+      throw new BackendUnavailableError('backend response was not valid JSON');
+    }
   }
 
   async #post(path: string, payload: unknown): Promise<Response> {

@@ -36,6 +36,35 @@ import {
   trustedImportContext,
 } from '../../qualification/test/fixtures.js';
 
+/**
+ * A facts stub for a deployment that *was* reached.
+ *
+ * `unavailableFacts` describes the opposite — no backend contacted — and using
+ * it as the stub for a healthy backend produced an incoherent deployment: the
+ * router attested an identity while the facts said none existed. Strict routes
+ * now refuse that combination, correctly, so the stub has to model a coherent
+ * one: an instance that is known, and an attestation that is present, partial,
+ * and fresh.
+ */
+const TEST_INSTANCE = 'test-instance-1';
+function attestedFacts(a, o = {}) {
+  const f = unavailableFacts(a);
+  const observedAt = new Date().toISOString();
+  return {
+    ...f,
+    backendInstance: { ...f.backendInstance, instanceId: o.instanceId ?? TEST_INSTANCE },
+    attestation: {
+      ...f.attestation,
+      completeness: 'partial',
+      missing: ['stubbed'],
+      backendInstanceId: o.instanceId ?? TEST_INSTANCE,
+      observedAt,
+      expiresAt: new Date(Date.now() + (o.lifetimeMs ?? 60_000)).toISOString(),
+    },
+  };
+}
+
+
 const PATH_A = '/models/testmodel-a.gguf';
 const PATH_B = '/models/testmodel-b.gguf';
 
@@ -142,7 +171,7 @@ function ctx(port, gate, catalog) {
     queueDepth: 0,
     estimatedPromptTokens: 10,
     // Provenance facts have their own suite; routing only needs them present.
-    qualificationFacts: async (a) => unavailableFacts(a),
+    qualificationFacts: async (a) => attestedFacts(a),
     requestedMaxTokens: 64,
   };
 }

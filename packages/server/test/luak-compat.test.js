@@ -231,6 +231,52 @@ test('a disagreeing probe does not permit export', async (t) => {
   assert.equal(result.ok, false);
 });
 
+test('an encode-only proof does not export', async (t) => {
+  if (!AVAILABLE) return t.skip('Luak is not checked out at ~/repos/luak');
+  // The mirror image of the decode-only case. Encoding is the direction the
+  // counts come from and it is still not the whole claim: without the decode
+  // side nothing has confirmed that the ids the runtime produced name the
+  // entries this artifact declares.
+  const { counts, result } = await runExport(
+    {
+      ...PROVEN,
+      runtimeTokenizerProof: {
+        ...PROVEN.runtimeTokenizerProof,
+        canary: { ...PROVEN.runtimeTokenizerProof.canary, decodeCanaryVerified: false,
+          decodeMatched: 51,
+          reasons: ['runtime decoding disagrees with the artifact token table (51/54 matched)'] },
+      },
+    },
+    'runtime_reported_unknown_tokenizer',
+  );
+  assert.equal(counts.source, 'runtime_reported_unknown_tokenizer');
+  assert.equal(result.ok, false);
+});
+
+test('a canary from the wrong suite does not export', async (t) => {
+  if (!AVAILABLE) return t.skip('Luak is not checked out at ~/repos/luak');
+  // A suite that failed its binding checks reports its reasons and verifies
+  // nothing; the identity must carry that through to the exporter rather than
+  // presenting a suite id as if it had passed.
+  const { counts, result } = await runExport(
+    {
+      ...PROVEN,
+      runtimeTokenizerProof: {
+        ...PROVEN.runtimeTokenizerProof,
+        canary: {
+          ...PROVEN.runtimeTokenizerProof.canary,
+          canarySuiteId: 'someone-elses.v1',
+          decodeCanaryVerified: false, encodeCanaryVerified: false,
+          reasons: ['canary was generated for a different artifact digest; a canary is not portable'],
+        },
+      },
+    },
+    'runtime_reported_unknown_tokenizer',
+  );
+  assert.equal(counts.source, 'runtime_reported_unknown_tokenizer');
+  assert.equal(result.ok, false);
+});
+
 test('removing the encode canary alone restores the pilot refusal', async (t) => {
   if (!AVAILABLE) return t.skip('Luak is not checked out at ~/repos/luak');
   // Everything else is intact and passing: the artifact is attested, the

@@ -235,7 +235,24 @@ export async function readGgufTokenizerMetadata(path: string): Promise<GgufToken
   for (let i = 0; i < kvCount; i++) {
     const key = c.str();
     const type = c.u32();
-    kv.set(key, c.value(type));
+    const value = c.value(type);
+    // A duplicate key is refused, not resolved.
+    //
+    // This reader kept the last occurrence; the key-selective reader below
+    // stopped at the first. A file carrying two `tokenizer.ggml.tokens` entries
+    // therefore had its metadata digest computed over one vocabulary and its
+    // token table — which is what decode expectations and the sampled probe
+    // read — taken from the other. Two readers disagreeing about the same bytes
+    // is precisely the gap a content digest exists to close, so neither reader
+    // picks a winner now.
+    if (kv.has(key)) {
+      throw new GgufReadError(
+        `duplicate metadata key ${key}: the file declares it more than once, so no ` +
+          'reader can identify it without choosing, and two readers that choose ' +
+          'differently describe two different tokenizers',
+      );
+    }
+    kv.set(key, value);
   }
 
   const str = (k: string): string | null => {
@@ -335,14 +352,18 @@ async function readGgufKeys(
 
   const wanted = new Set(keys);
   const out = new Map<string, GgufValue>();
+  const seen = new Set<string>();
+  // The whole block is parsed even once every wanted key is in hand. Stopping
+  // early made this reader accept files the metadata reader rejects — a header
+  // with a corrupt tail still yielded a usable token table — and made it take
+  // the *first* of a duplicated key while the other took the last.
   for (let i = 0; i < kvCount; i++) {
     const key = c.str();
     const type = c.u32();
     const value = c.value(type);
-    if (wanted.has(key)) {
-      out.set(key, value);
-      if (out.size === wanted.size) break;
-    }
+    if (seen.has(key)) throw new GgufReadError(`duplicate metadata key ${key}`);
+    seen.add(key);
+    if (wanted.has(key)) out.set(key, value);
   }
   return out;
 }
@@ -373,16 +394,38 @@ export async function readGgufTokenTable(path: string): Promise<readonly string[
  * 4 USER_DEFINED, 5 UNUSED, 6 BYTE.
  */
 export async function readGgufTokenTypes(path: string): Promise<Int32Array | null> {
-  const kv = await readGgufKeys(path, ['tokenizer.ggml.token_type']);
+  const kv = await readGgufKeys(path, ['tokenizer.ggml.token_type', 'tokenizer.ggml.tokens']);
   const v = kv?.get('tokenizer.ggml.token_type');
+  const tokens = kv?.get('tokenizer.ggml.tokens');
   if (v === undefined || typeof v !== 'object' || !('kind' in v)) return null;
   const raw = v as RawArray;
   // I32 only: anything else is a format this reader has not seen and must not
   // reinterpret as one it has.
   if (raw.elementType !== Ty.I32 && raw.elementType !== Ty.U32) return null;
+  // The arrays are parallel or they are not usable. A short type array left
+  // `types[id]` undefined for every entry past its end, which silently changed
+  // which vocabulary entries a canary pins — and a long one described entries
+  // that do not exist. Neither is a type table for this vocabulary.
+  if (!Array.isArray(tokens) || tokens.length !== raw.count) return null;
   const out = new Int32Array(raw.count);
   for (let i = 0; i < raw.count; i++) out[i] = raw.bytes.readInt32LE(i * 4);
   return out;
+}
+
+/**
+ * GGUF `llama_token_type` codes that name a real vocabulary entry.
+ *
+ * UNDEFINED (0) and UNUSED (5) are padding, which the runtime renders as the
+ * empty string. Anything outside the known set is a code this reader has never
+ * seen, and guessing that an unknown code behaves like NORMAL is how a canary
+ * comes to pin an entry whose rendering nobody has checked.
+ */
+export const COMPARABLE_TOKEN_TYPES: readonly number[] = [1, 2, 3, 4, 6];
+
+export function isComparableTokenType(ty: number | null | undefined): boolean {
+  return ty === null || ty === undefined
+    ? false
+    : (COMPARABLE_TOKEN_TYPES as readonly number[]).includes(ty);
 }
 
 /** Hash arbitrary template text the same way, for comparing runtime against artifact. */

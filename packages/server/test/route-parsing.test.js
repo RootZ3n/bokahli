@@ -19,6 +19,35 @@ import { unavailableFacts } from '../dist/facts.js';
 import { createHandler } from '../dist/http.js';
 import { QualificationGate } from '../dist/qualification.js';
 
+/**
+ * A facts stub for a deployment that *was* reached.
+ *
+ * `unavailableFacts` describes the opposite — no backend contacted — and using
+ * it as the stub for a healthy backend produced an incoherent deployment: the
+ * router attested an identity while the facts said none existed. Strict routes
+ * now refuse that combination, correctly, so the stub has to model a coherent
+ * one: an instance that is known, and an attestation that is present, partial,
+ * and fresh.
+ */
+const TEST_INSTANCE = 'test-instance-1';
+function attestedFacts(a, o = {}) {
+  const f = unavailableFacts(a);
+  const observedAt = new Date().toISOString();
+  return {
+    ...f,
+    backendInstance: { ...f.backendInstance, instanceId: o.instanceId ?? TEST_INSTANCE },
+    attestation: {
+      ...f.attestation,
+      completeness: 'partial',
+      missing: ['stubbed'],
+      backendInstanceId: o.instanceId ?? TEST_INSTANCE,
+      observedAt,
+      expiresAt: new Date(Date.now() + (o.lifetimeMs ?? 60_000)).toISOString(),
+    },
+  };
+}
+
+
 const DIGEST = `sha256:${'a'.repeat(64)}`;
 const TOKEN = 't'.repeat(43);
 const MODEL = 'm.q4-k';
@@ -97,7 +126,10 @@ before(async () => {
     },
     // Provenance facts get their own suite; here they only have to exist so
     // the routing path can complete.
-    facts: { collect: async (a) => unavailableFacts(a) },
+    facts: {
+      collect: async (a) => attestedFacts(a),
+      currentInstanceId: async () => TEST_INSTANCE,
+    },
     startedAt: new Date().toISOString(),
   };
   api = createServer(createHandler(deps));

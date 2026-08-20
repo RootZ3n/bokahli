@@ -36,6 +36,7 @@
  */
 import { createHash } from 'node:crypto';
 import type { RuntimeTokenizerProof, TokenizerCanarySuite } from '@bokahli/contracts';
+import { isComparableTokenType } from './gguf.js';
 import { verifyTokenizerCanary } from './tokenizer-canary.js';
 
 /**
@@ -66,6 +67,17 @@ export interface TokenizerProbeSources {
   ) => Promise<readonly number[]>;
   /** POST /detokenize. Returns the concatenated text for those ids. */
   readonly detokenize: (ids: readonly number[]) => Promise<string>;
+  /**
+   * Re-read the backend instance identity.
+   *
+   * The probe sequence is roughly ninety-five calls. Reading the instance once
+   * before it and stamping the result with that reading assumes nothing
+   * happened in between — which is exactly the assumption a restart breaks, and
+   * the resulting proof would carry the old process's identity over answers
+   * that came partly from the new one. Read before and after; any disagreement,
+   * or an unknown reading at either end, fails.
+   */
+  readonly readBackendInstanceId?: () => Promise<string | null>;
   readonly now: () => Date;
 }
 
@@ -173,11 +185,12 @@ export async function probeRuntimeTokenizer(
   const types = inputs.artifactTokenTypes ?? null;
   const ids: number[] = [];
   for (const id of sampled) {
-    // UNUSED (5) and UNDEFINED (0) entries are padding. The runtime renders them
-    // as the empty string, so pinning the artifact's stored text for one would
-    // fail a healthy backend.
+    // UNUSED (5) and UNDEFINED (0) entries are padding, which the runtime
+    // renders as the empty string; anything outside the known set is a code
+    // this reader has not seen, and assuming an unknown code renders like
+    // NORMAL is a guess. Both are skipped rather than compared.
     const ty = types === null ? null : (types[id] ?? null);
-    if (ty === 0 || ty === 5) continue;
+    if (types !== null && !isComparableTokenType(ty)) continue;
     const bytes = decodeByteLevelBytes(inputs.artifactTokens[id] as string);
     if (bytes !== null && isSelfContainedUtf8(bytes)) ids.push(id);
   }
@@ -228,6 +241,42 @@ export async function probeRuntimeTokenizer(
   } catch {
     // The vocabulary comparison is the binding; segmentation is comparability
     // metadata. Losing it weakens the record without invalidating the proof.
+  }
+
+  // The second reading. Taken after every call, before anything is claimed.
+  let instanceDrift: string | null = null;
+  if (sources.readBackendInstanceId !== undefined) {
+    let after: string | null = null;
+    try {
+      after = await sources.readBackendInstanceId();
+    } catch {
+      after = null;
+    }
+    if (after === null || inputs.backendInstanceId === null) {
+      instanceDrift =
+        'the backend instance could not be established on both sides of the probe sequence';
+    } else if (after !== inputs.backendInstanceId) {
+      instanceDrift =
+        'the backend restarted during the probe sequence, so these answers came from ' +
+        'more than one process and describe none of them';
+    }
+  }
+
+  if (instanceDrift !== null) {
+    return {
+      ...base,
+      matches: false,
+      samplesChecked: ids.length,
+      samplesMatched: matched,
+      segmentationDigest: null,
+      detail: instanceDrift,
+      canary: {
+        ...canary,
+        decodeCanaryVerified: false,
+        encodeCanaryVerified: false,
+        reasons: [...canary.reasons, instanceDrift],
+      },
+    };
   }
 
   const matches = matched === ids.length;

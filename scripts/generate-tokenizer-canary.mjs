@@ -44,6 +44,7 @@ import {
   readGgufTokenizerMetadata,
   readGgufTokenTable,
   readGgufTokenTypes,
+  isComparableTokenType,
   validateCanarySuite,
 } from '../packages/runtime/dist/index.js';
 
@@ -228,7 +229,7 @@ function decodeIds(vocabSize, types, special) {
  */
 function expectedDecodeBytes(tokens, types, tokenId) {
   const ty = types === null ? null : types[tokenId];
-  if (ty === 0 || ty === 5) return null;
+  if (types !== null && !isComparableTokenType(ty)) return null;
   const bytes = decodeByteLevelBytes(tokens[tokenId]);
   if (bytes === null || !isSelfContainedUtf8(bytes)) return null;
   return bytes;
@@ -251,12 +252,22 @@ function expectedDecodeBytes(tokens, types, tokenId) {
  * memory, serialisation, or storage — shows up as a mismatch. Cheap insurance
  * on a step that runs once per artifact.
  */
-async function reverify(path, artifact, tokens, tokenTypes) {
+async function reverify(path, artifact, tokens, tokenTypes, meta) {
   const suite = JSON.parse(await readFile(path, 'utf8'));
   const structural = validateCanarySuite(suite);
   if (structural.length > 0) return structural;
   const errs = [];
+  // Everything the suite claims about the artifact is re-checked against the
+  // artifact, not against the values the suite carries. A binding that is only
+  // ever compared with itself is not a binding.
   if (suite.artifactDigest !== artifact.digest) errs.push('artifact digest drifted');
+  if (suite.tokenizerMetadataDigest !== meta.metadataDigest) {
+    errs.push('tokenizer metadata digest drifted from the artifact');
+  }
+  if (suite.vocabSize !== tokens.length) errs.push('vocabSize drifted from the artifact');
+  if (suite.encodeSettings.addSpecial !== false || suite.encodeSettings.parseSpecial !== true) {
+    errs.push('encode settings are not the ones the reference was invoked with');
+  }
   for (const c of suite.encode) {
     const text = Buffer.from(c.inputBase64, 'base64').toString('utf8');
     const ids = await referenceTokenize(artifact.artifactPath, text);
@@ -306,6 +317,17 @@ async function main() {
   const meta = await readGgufTokenizerMetadata(artifact.artifactPath);
   const tokens = await readGgufTokenTable(artifact.artifactPath);
   const tokenTypes = await readGgufTokenTypes(artifact.artifactPath);
+  // Generating without types is possible and produces a weaker corpus: every
+  // padding slot would have to be pinned or guessed at. Refuse instead — this
+  // step runs once, and a canary generated blind is a canary that fails later
+  // for reasons nobody can attribute.
+  if (tokenTypes === null) {
+    console.error(
+      'artifact carries no usable tokenizer.ggml.token_type array (absent, wrong element ' +
+        'type, or not the same length as the token table); refusing to pin a corpus blind',
+    );
+    process.exit(1);
+  }
   if (tokens === null) {
     console.error('artifact carries no token table; a canary cannot be generated');
     process.exit(1);
@@ -318,7 +340,7 @@ async function main() {
   if (verifyIdx > 0) {
     // Re-check a committed canary without rewriting it. Same independent
     // references, same comparison; nothing is generated and nothing is served.
-    const errs = await reverify(process.argv[verifyIdx + 1], artifact, tokens, tokenTypes);
+    const errs = await reverify(process.argv[verifyIdx + 1], artifact, tokens, tokenTypes, meta);
     if (errs.length > 0) {
       console.error(`canary does not re-derive:\n  ${errs.join('\n  ')}`);
       process.exit(1);
@@ -415,7 +437,7 @@ async function main() {
   await writeFile(out, `${JSON.stringify(suite, null, 2)}\n`, 'utf8');
 
   process.stderr.write('re-deriving every expectation from the file as written…\n');
-  const errs = await reverify(out, artifact, tokens, tokenTypes);
+  const errs = await reverify(out, artifact, tokens, tokenTypes, meta);
   if (errs.length > 0) {
     console.error(`the written canary does not survive re-derivation:\n  ${errs.join('\n  ')}`);
     console.error('the file was written; do NOT commit it. Re-run generation.');
