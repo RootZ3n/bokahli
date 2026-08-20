@@ -9,7 +9,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { canonicalHash, canonicalJson, luakCompatBundleHash } from '../dist/canonical.js';
+import { canonicalHash, canonicalHashExcluding, canonicalJson, luakCompatBundleHash } from '../dist/canonical.js';
 import { importQualificationBundle } from '../dist/importer.js';
 import {
   DIGEST_B,
@@ -21,6 +21,8 @@ import {
   bundleWithBadHash,
   codesOf,
   importContext,
+  seal,
+  trustedImportContext,
   unknownCompliance,
 } from './fixtures.js';
 
@@ -61,24 +63,29 @@ test("Luak's own hash is order-dependent where the canonical one is not", () => 
 test('valid canonical evidence imports', () => {
   const result = importQualificationBundle(bundle(), importContext());
   assert.equal(result.ok, true, JSON.stringify(codesOf(result)));
-  assert.equal(result.bundle.key.modelId, MODEL_A);
-  assert.equal(result.bundle.verdict, 'QUALIFIED');
-  assert.equal(result.bundle.provenance.authority, 'luak');
+  assert.equal(result.accepted.bundle.key.modelId, MODEL_A);
+  assert.equal(result.accepted.bundle.verdict, 'QUALIFIED');
+  assert.equal(result.accepted.upstreamProvenance.claimedAuthority, 'luak');
+  // …and that claim by itself authorises nothing.
+  assert.equal(result.accepted.importTrust.accepted, false);
 });
 
 test('accepted evidence is frozen against later edits', () => {
   const result = importQualificationBundle(bundle(), importContext());
   assert.equal(result.ok, true);
   assert.throws(() => {
-    result.bundle.aggregate.passRate = 1;
+    result.accepted.bundle.aggregate.passRate = 1;
   }, TypeError);
 });
 
-test("Luak's signature status is carried through, never upgraded", () => {
+test("Luak's claimed signature status is carried through, never upgraded", () => {
   const result = importQualificationBundle(bundle(), importContext());
   assert.equal(result.ok, true);
-  // The fixture is unsigned. Import must not turn that into anything better.
-  assert.equal(result.bundle.provenance.luakSignatureStatus, 'unsigned_key_missing');
+  // The fixture claims "unsigned_key_missing". Import must neither improve that
+  // nor let it mean anything: the claim is provenance, and trust is separate.
+  assert.equal(result.accepted.upstreamProvenance.claimedSignatureStatus, 'unsigned_key_missing');
+  assert.equal(result.accepted.upstreamProvenance.verifiedByBokahli, false);
+  assert.equal(result.accepted.importTrust.accepted, false);
 });
 
 // ---------------------------------------------------------------------------
@@ -245,8 +252,8 @@ test('infrastructure failures cannot be hidden from the pass rate', () => {
   const b = bundle({ attempts, aggregate: aggregateOf(attempts) });
   const result = importQualificationBundle(b, importContext());
   assert.equal(result.ok, true, JSON.stringify(codesOf(result)));
-  assert.equal(result.bundle.aggregate.passRate, 1);
-  assert.equal(result.bundle.aggregate.infrastructureFailureRate, 0.5);
+  assert.equal(result.accepted.bundle.aggregate.passRate, 1);
+  assert.equal(result.accepted.bundle.aggregate.infrastructureFailureRate, 0.5);
 });
 
 test('claiming zero repeat-disagreement without any repeats is rejected', () => {
@@ -264,14 +271,14 @@ test('claiming zero repeat-disagreement without any repeats is rejected', () => 
 test('measured repeats are accepted and their disagreement computed', () => {
   const attempts = [
     attempt({ attemptId: 'a1', fixtureId: 'fx-1' }),
-    attempt({ attemptId: 'a2', fixtureId: 'fx-1', outcome: 'FAIL', score: 0 }),
+    attempt({ attemptId: 'a2', fixtureId: 'fx-1', outcome: 'FAIL', score: 0, failureOrigin: 'MODEL', failureReasonCode: 'low_score' }),
     attempt({ attemptId: 'a3', fixtureId: 'fx-2' }),
     attempt({ attemptId: 'a4', fixtureId: 'fx-2' }),
   ];
   const b = bundle({ attempts, aggregate: aggregateOf(attempts) });
   const result = importQualificationBundle(b, importContext());
   assert.equal(result.ok, true, JSON.stringify(codesOf(result)));
-  assert.equal(result.bundle.aggregate.repeatabilityDisagreementRate, 0.5);
+  assert.equal(result.accepted.bundle.aggregate.repeatabilityDisagreementRate, 0.5);
 });
 
 // ---------------------------------------------------------------------------
@@ -307,12 +314,12 @@ test('an explicitly unknown timing is accepted', () => {
   const b = bundle({ attempts: [a], aggregate: aggregateOf([a]) });
   const result = importQualificationBundle(b, importContext());
   assert.equal(result.ok, true, JSON.stringify(codesOf(result)));
-  assert.equal(result.bundle.attempts[0].timings.timeToFirstTokenMs, null);
+  assert.equal(result.accepted.bundle.attempts[0].timings.timeToFirstTokenMs, null);
 });
 
 test('evidence claiming an authority other than Luak is rejected', () => {
   const result = importQualificationBundle(
-    bundle({ provenance: { authority: 'bokahli' } }),
+    bundle({ provenance: { claimedAuthority: 'bokahli' } }),
     importContext(),
   );
   assert.ok(codesOf(result).includes('PROVENANCE_INVALID'));
@@ -335,6 +342,7 @@ test('a duplicate key is rejected rather than silently replacing', () => {
     'hardwareProfileId', 'taskClass', 'taskClassContractVersion', 'fixtureSuiteId',
     'fixtureSuiteVersion', 'verificationRegimeVersion',
   ].map((f) => b.key[f]).join('|');
+  void seal;
   const second = importQualificationBundle(b, importContext({ existingKeys: new Set([ks]) }));
   assert.ok(codesOf(second).includes('DUPLICATE_KEY'));
 });

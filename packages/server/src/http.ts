@@ -14,6 +14,7 @@ import {
   type CapacityUnavailable,
   type Escalation,
   type GpuSnapshot,
+  type ProfileRequirements,
   type RequestTelemetry,
   type RouteOutcome,
   type RouteSpec,
@@ -771,6 +772,34 @@ function parseChatRequest(
   };
 }
 
+/**
+ * Read a safety-bearing flag strictly.
+ *
+ * `requireQualified: "true"` used to fall through to `false`, because only the
+ * literal `true` was recognised. A caller who asked to be protected was served
+ * anyway, silently — the worst possible reading of a malformed request. Anything
+ * that is not a real boolean is now an error, so the failure is visible to the
+ * caller rather than resolved in their disfavour behind their back.
+ */
+function strictBool(
+  v: unknown,
+  field: string,
+): { value: boolean | undefined } | { error: string } {
+  if (v === undefined) return { value: undefined };
+  if (typeof v === 'boolean') return { value: v };
+  return {
+    error:
+      `${field} must be a boolean. It was ${JSON.stringify(v)}, and this field decides ` +
+      'whether a qualification check runs, so it is not defaulted.',
+  };
+}
+
+function strictString(v: unknown, field: string): { value: string | undefined } | { error: string } {
+  if (v === undefined) return { value: undefined };
+  if (typeof v === 'string' && v.length > 0) return { value: v };
+  return { error: `${field} must be a non-empty string when present` };
+}
+
 function parseRouteSpec(r: unknown): { spec: RouteSpec } | { error: string } {
   if (typeof r !== 'object' || r === null) {
     return { error: 'route must be an object with a mode of AUTO, PROFILE, or EXACT' };
@@ -778,19 +807,25 @@ function parseRouteSpec(r: unknown): { spec: RouteSpec } | { error: string } {
   const o = r as Record<string, unknown>;
   const mode = o['mode'];
   if (mode === 'AUTO') {
+    const rq = strictBool(o['requireQualified'], 'route.requireQualified');
+    if ('error' in rq) return rq;
+    const tc = strictString(o['taskClass'], 'route.taskClass');
+    if ('error' in tc) return tc;
     const spec: RouteSpec = {
       mode: 'AUTO',
-      ...(typeof o['taskClass'] === 'string' ? { taskClass: o['taskClass'] } : {}),
-      ...(o['requireQualified'] === true ? { requireQualified: true } : {}),
+      ...(tc.value !== undefined ? { taskClass: tc.value } : {}),
+      ...(rq.value === true ? { requireQualified: true } : {}),
     };
     return { spec };
   }
   if (mode === 'PROFILE') {
     const req = o['requirements'];
-    if (typeof req !== 'object' || req === null) {
+    if (typeof req !== 'object' || req === null || Array.isArray(req)) {
       return { error: 'PROFILE requires a requirements object' };
     }
-    return { spec: { mode: 'PROFILE', requirements: req as never } };
+    const validated = validateProfileRequirements(req as Record<string, unknown>);
+    if ('error' in validated) return validated;
+    return { spec: { mode: 'PROFILE', requirements: validated.requirements } };
   }
   if (mode === 'EXACT') {
     const modelId = o['modelId'];
@@ -799,17 +834,77 @@ function parseRouteSpec(r: unknown): { spec: RouteSpec } | { error: string } {
     if (typeof digest !== 'string') {
       return { error: 'EXACT requires artifactDigest; a route without a digest is not exact' };
     }
+    const rq = strictBool(o['requireQualified'], 'route.requireQualified');
+    if ('error' in rq) return rq;
+    const tc = strictString(o['taskClass'], 'route.taskClass');
+    if ('error' in tc) return tc;
     return {
       spec: {
         mode: 'EXACT',
         modelId,
         artifactDigest: digest,
-        ...(typeof o['taskClass'] === 'string' ? { taskClass: o['taskClass'] } : {}),
-        ...(o['requireQualified'] === true ? { requireQualified: true } : {}),
+        ...(tc.value !== undefined ? { taskClass: tc.value } : {}),
+        ...(rq.value === true ? { requireQualified: true } : {}),
       },
     };
   }
   return { error: `unknown route mode: ${String(mode)}` };
+}
+
+/**
+ * Validate a caller-supplied profile.
+ *
+ * Previously the requirements object was cast straight through unchecked, which
+ * had two consequences: a string where an array was expected crashed the router
+ * mid-evaluation, and a malformed `requireQualified` silently disabled the
+ * qualification check. Both are now caller-visible errors. A constraint the
+ * caller wrote must either be enforced or refused — never quietly dropped,
+ * because a dropped constraint reads to the caller exactly like a satisfied one.
+ */
+function validateProfileRequirements(
+  raw: Record<string, unknown>,
+): { requirements: ProfileRequirements } | { error: string } {
+  const numeric = [
+    'minContextTokens', 'maxContextTokens', 'minParameterCount', 'maxQueueDepth',
+  ] as const;
+  const stringy = ['architecture', 'requiredTaskClass'] as const;
+  const stringArrays = ['quantizationAllowList', 'quantizationDenyList'] as const;
+  const known = new Set<string>([
+    ...numeric, ...stringy, ...stringArrays, 'requiredCapabilities', 'requireQualified',
+  ]);
+
+  for (const k of Object.keys(raw)) {
+    if (!known.has(k)) {
+      return { error: `unknown profile requirement "${k}". Unknown constraints are refused rather than ignored.` };
+    }
+  }
+  const out: Record<string, unknown> = {};
+  for (const k of numeric) {
+    const v = raw[k];
+    if (v === undefined) continue;
+    if (typeof v !== 'number' || !Number.isFinite(v)) {
+      return { error: `requirements.${k} must be a finite number` };
+    }
+    out[k] = v;
+  }
+  for (const k of stringy) {
+    const r = strictString(raw[k], `requirements.${k}`);
+    if ('error' in r) return r;
+    if (r.value !== undefined) out[k] = r.value;
+  }
+  for (const k of [...stringArrays, 'requiredCapabilities'] as const) {
+    const v = raw[k];
+    if (v === undefined) continue;
+    if (!Array.isArray(v) || v.some((x) => typeof x !== 'string')) {
+      return { error: `requirements.${k} must be an array of strings` };
+    }
+    out[k] = v;
+  }
+  const rq = strictBool(raw['requireQualified'], 'requirements.requireQualified');
+  if ('error' in rq) return rq;
+  if (rq.value !== undefined) out['requireQualified'] = rq.value;
+
+  return { requirements: out as ProfileRequirements };
 }
 
 // ---------------------------------------------------------------------------

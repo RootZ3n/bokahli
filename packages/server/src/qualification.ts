@@ -141,19 +141,23 @@ export class QualificationGate {
     const empty = { modelId: artifact.modelId, decision, passRate: null, meanScore: null, sampleCount: null };
     if (!isTaskClass(taskClass)) return empty;
 
-    const [bundle] = this.#opts.store.findForTask(
+    const [entry] = this.#opts.store.findForTask(
       this.#deploymentKey(artifact),
       taskClass,
       TASK_CLASS_CONTRACT_VERSIONS[taskClass],
     );
-    if (!bundle) return empty;
+    // Ranking inputs come only from evidence the operator authorised. An
+    // untrusted bundle's numbers must not order candidates either: a forged
+    // "passRate: 1.0" would otherwise still push a model to the front of the
+    // list even though it cannot be routed to.
+    if (!entry || !entry.importTrust.accepted) return empty;
 
     return {
       modelId: artifact.modelId,
       decision,
-      passRate: bundle.aggregate.passRate,
-      meanScore: bundle.aggregate.meanScore,
-      sampleCount: bundle.aggregate.sampleCount,
+      passRate: entry.bundle.aggregate.passRate,
+      meanScore: entry.bundle.aggregate.meanScore,
+      sampleCount: entry.bundle.aggregate.sampleCount,
     };
   }
 

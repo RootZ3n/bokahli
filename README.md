@@ -118,16 +118,27 @@ absence of evidence into permission.
 
 Evidence is keyed to what was actually tested — model identity, **exact artifact
 digest**, quantisation, runtime name and pinned build, hardware profile, task
-class and its contract version, fixture suite and version, and the verification
-regime version. A miss on any element is a miss; there is no nearest match. The
-importer recomputes the canonical content hash, checks the evidence against this
-machine's artifact, runtime and hardware, and recomputes every aggregate from the
-attempts it claims to summarise, rejecting any bundle whose summary flatters its
-detail. It never repairs evidence and never calls Luak.
+class and its contract version, fixture suite and version, the verification
+regime version, and the context tier. A miss on any element is a miss; there is
+no nearest match. The importer recomputes the canonical content hash, checks the
+evidence against this machine's artifact, runtime, hardware and served context,
+and recomputes every aggregate from the attempts it claims to summarise,
+rejecting any bundle whose summary flatters its detail. It never repairs
+evidence and never calls Luak.
+
+**A bundle cannot authorise itself.** Three things are kept strictly apart:
+`payloadIntegrity` (Bokahli's own canonical hash — proves the payload is intact,
+never who wrote it), `upstreamProvenance` (what the payload *claims* about Luak,
+including any claimed signature status — recorded, never believed), and
+`importTrust` (derived only from an operator-pinned evidence digest). Routing
+requires `importTrust`. Evidence that is intact, internally consistent, and
+unauthorised is held for inspection and qualifies nothing.
 
 Policy has **no default thresholds**, because Bokahli has no data on which to
-base one. An unconfigured policy accepts nothing. An unmeasured value never
-satisfies a requirement about it.
+base one. An unconfigured policy accepts nothing, and a *partially* configured
+one is refused rather than partially applied — a policy that looks configured
+while silently enforcing less than it appears to is worse than none. An
+unmeasured value never satisfies a requirement about it.
 
 The current state, plainly: no evidence is imported, no policy is configured, and
 the installed artifact is `INSTALLED_UNQUALIFIED`. Every request that demands
@@ -157,7 +168,7 @@ on a caller-supplied evidence packet; Bokahli gains no filesystem or shell acces
 
 ```bash
 scripts/verify.sh     # 69 checks against a running deployment
-npm test              # 138 unit, lifecycle, qualification and task-contract tests
+npm test              # 192 unit, lifecycle, qualification, grounding and adversarial tests
 ```
 
 ## Failure behaviour

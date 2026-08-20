@@ -144,7 +144,12 @@ export function validateTestLogTriageResult(
     v.add('MALFORMED_RESULT', 'taskClass must be test_log_triage', 'taskClass');
   }
 
-  const logLines = req.logText.split('\n');
+  // A log ending in a newline splits to a trailing empty element. Citing it
+  // would "succeed" against a line that does not exist, so it is dropped: the
+  // citable lines are the ones a human reading the log would number.
+  const rawLines = req.logText.split('\n');
+  const logLines =
+    rawLines.length > 1 && rawLines[rawLines.length - 1] === '' ? rawLines.slice(0, -1) : rawLines;
   const cite = (c: Citation, field: string): void => checkLogCitation(v, c, logLines, field);
 
   // Outcome consistency. Each outcome makes a different promise, and a result
@@ -279,10 +284,32 @@ export function validateRepoReconnaissanceRequest(req: RepoReconnaissanceRequest
     );
   }
 
+  const seenPaths = new Set<string>();
   p.files.forEach((f, i) => {
     if (!f.path) {
       v.add('MALFORMED_RESULT', `packet.files[${i}].path is required`, `packet.files[${i}].path`);
       return;
+    }
+    // Two entries at the same path make "the file at src/a.ts" ambiguous, and
+    // resolution would fall to array order — so a citation's meaning would
+    // depend on how the caller happened to serialise the packet.
+    if (seenPaths.has(f.path)) {
+      v.add(
+        'MALFORMED_RESULT',
+        `packet.files[${i}].path "${f.path}" appears more than once. A citation into it ` +
+          'would resolve by array position rather than by meaning.',
+        `packet.files[${i}].path`,
+      );
+    }
+    seenPaths.add(f.path);
+    if (!isNormalisedPath(f.path)) {
+      v.add(
+        'MALFORMED_RESULT',
+        `packet.files[${i}].path "${f.path}" is not in normal form. "src//a.ts" and ` +
+          '"src/./a.ts" name the same file as "src/a.ts" but compare as different strings, ' +
+          'which lets one packet hold the same file twice under aliases.',
+        `packet.files[${i}].path`,
+      );
     }
     if (!isSafeRelativePath(f.path)) {
       v.add(
@@ -518,6 +545,19 @@ function checkRange(v: Violations, c: Citation, field: string): boolean {
  */
 function checkQuote(v: Violations, c: Citation, spanText: string, field: string): void {
   if (c.quote === null) return;
+  if (c.quote.length === 0) {
+    // `''` is contained in every string, so an empty quote passes every check
+    // while asserting nothing. A model that wants to cite without quoting says
+    // so with null; an empty string is a claim shaped like evidence.
+    v.add(
+      'CITATION_QUOTE_MISMATCH',
+      'an empty quote asserts nothing and matches everything. Use null to cite a span ' +
+        'without quoting from it.',
+      field,
+      c,
+    );
+    return;
+  }
   if (!spanText.includes(c.quote)) {
     v.add(
       'CITATION_QUOTE_MISMATCH',
@@ -603,6 +643,20 @@ function countLines(s: string): number {
   return s.split('\n').length;
 }
 
+/**
+ * Reject path spellings that are not already in normal form.
+ *
+ * Normalising instead of rejecting would mean silently rewriting a caller's
+ * allowlist and a model's citations to mean something they did not say. The
+ * caller can spell it correctly; Bokahli should not guess on their behalf.
+ */
+function isNormalisedPath(p: string): boolean {
+  if (p.length === 0) return false;
+  const parts = p.split('/');
+  if (parts.some((seg) => seg === '' || seg === '.' || seg === '..')) return false;
+  return !p.endsWith('/');
+}
+
 function isSafeRelativePath(p: string): boolean {
   if (p.startsWith('/') || p.startsWith('~') || /^[A-Za-z]:[\\/]/.test(p)) return false;
   return !p.split(/[/\\]/).includes('..');
@@ -615,7 +669,7 @@ function isSafeRelativePath(p: string): boolean {
  * difference between an allowlist and a string that looks like one.
  */
 export function isPathAllowed(path: string, allowed: readonly string[]): boolean {
-  if (!isSafeRelativePath(path)) return false;
+  if (!isSafeRelativePath(path) || !isNormalisedPath(path)) return false;
   const parts = path.split('/');
   return allowed.some((entry) => {
     const e = entry.replace(/\/+$/, '');

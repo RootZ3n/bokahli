@@ -21,8 +21,8 @@
 import {
   notQualified,
   qualificationKeyString,
+  type AcceptedQualificationBundle,
   type PolicyShortfall,
-  type QualificationBundle,
   type QualificationDecision,
   type QualificationPolicy,
   type TaskClass,
@@ -31,9 +31,35 @@ import type { DeploymentKey, QualificationStore } from './store.js';
 
 const MS_PER_DAY = 86_400_000;
 
+/**
+ * Requirements a policy must state before it is usable at all.
+ *
+ * A half-written policy is more dangerous than no policy: it looks configured,
+ * it passes, and the checks it forgot are silently disabled. These five are the
+ * ones whose omission would let evidence qualify for reasons the operator never
+ * considered — an arbitrary fixture suite, an arbitrary scoring regime, a
+ * single lucky attempt, or a run that mostly failed to execute at all.
+ *
+ * Bokahli still picks no *values*. It only insists that the operator picks them.
+ */
+export const REQUIRED_POLICY_FIELDS: readonly (keyof QualificationPolicy)[] = [
+  'minSampleCount',
+  'minPassRate',
+  'requiredFixtureSuiteId',
+  'requiredFixtureSuiteVersion',
+  'requiredVerificationRegimeVersion',
+];
+
 /** True when a policy states no requirement at all. */
 export function isEmptyPolicy(policy: QualificationPolicy): boolean {
   return Object.values(policy).every((v) => v === undefined);
+}
+
+/** Requirements this policy has left unstated. Empty means complete. */
+export function missingPolicyFields(
+  policy: QualificationPolicy,
+): readonly (keyof QualificationPolicy)[] {
+  return REQUIRED_POLICY_FIELDS.filter((f) => policy[f] === undefined);
 }
 
 export interface PolicyEvaluationInput {
@@ -65,6 +91,19 @@ export function evaluateQualification(input: PolicyEvaluationInput): Qualificati
     );
   }
 
+  const missing = missingPolicyFields(policy);
+  if (missing.length > 0) {
+    return notQualified(
+      taskClass,
+      'POLICY_INCOMPLETE',
+      `the policy for "${taskClass}" does not state ${missing.join(', ')}. A partially ` +
+        'written policy is refused rather than applied: the checks it omits would ' +
+        'otherwise be silently disabled, and a policy that looks configured while ' +
+        'enforcing less than it appears to is worse than none at all.',
+      missing.map((f) => ({ requirement: `policy.${String(f)}`, required: 'stated', actual: 'unset' })),
+    );
+  }
+
   const candidates = store.findForTask(deployment, taskClass, taskClassContractVersion);
   if (candidates.length === 0) {
     return notQualified(
@@ -83,8 +122,8 @@ export function evaluateQualification(input: PolicyEvaluationInput): Qualificati
   // likely to be trying to make pass.
   let firstFailure: QualificationDecision | null = null;
 
-  for (const bundle of candidates) {
-    const decision = evaluateBundle(bundle, policy, taskClass, now);
+  for (const entry of candidates) {
+    const decision = evaluateBundle(entry, policy, taskClass, now);
     if (decision.qualified) return decision;
     firstFailure ??= decision;
   }
@@ -99,13 +138,14 @@ export function evaluateQualification(input: PolicyEvaluationInput): Qualificati
   );
 }
 
-/** Apply one policy to one bundle. Exported so a single bundle can be checked. */
+/** Apply one policy to one accepted bundle. Exported so one can be checked alone. */
 export function evaluateBundle(
-  bundle: QualificationBundle,
+  entry: AcceptedQualificationBundle,
   policy: QualificationPolicy,
   taskClass: string,
   now: Date,
 ): QualificationDecision {
+  const bundle = entry.bundle;
   const key = bundle.key;
   const agg = bundle.aggregate;
   const shortfalls: PolicyShortfall[] = [];
@@ -118,8 +158,59 @@ export function evaluateBundle(
     key,
     evidenceHash: bundle.contentHash,
     evidenceGeneratedAt: bundle.generatedAt,
-    authority: 'luak' as const,
+    // Authority is what Bokahli can account for, and the only thing that can
+    // put "luak" here is the operator's trust anchor. The payload's own claim
+    // travels separately, in claimedAuthority, precisely so the two can differ
+    // and be seen to differ.
+    authority: entry.importTrust.accepted ? ('luak' as const) : ('none' as const),
+    claimedAuthority: entry.upstreamProvenance.claimedAuthority,
+    importTrustBasis: entry.importTrust.basis,
   };
+
+  // Trust first. Everything below this line reasons about what the evidence
+  // *says*; none of it establishes who wrote it. A payload can be intact,
+  // internally consistent, correctly keyed to this machine, and still be a file
+  // an attacker dropped in a directory — the content hash is unkeyed, so
+  // recomputing it after an edit is free. Only an operator can close that gap.
+  if (!entry.importTrust.accepted) {
+    return {
+      ...base,
+      qualified: false,
+      reason: 'EVIDENCE_NOT_TRUSTED',
+      shortfalls: [
+        { requirement: 'importTrust.accepted', required: 'true', actual: 'false' },
+        {
+          requirement: 'importTrust.basis',
+          required: 'OPERATOR_PINNED_DIGEST',
+          actual: entry.importTrust.basis,
+        },
+      ],
+      detail:
+        'this evidence is intact and internally consistent, and no operator has authorised ' +
+        `it. Its content hash (${bundle.contentHash}) is not on the trust anchor's pinned ` +
+        'list. A verified content hash proves the payload has not changed since it was ' +
+        'sealed; it proves nothing about who sealed it, and the payload\u2019s own claim to ' +
+        `come from "${entry.upstreamProvenance.claimedAuthority}" is text it chose for itself.`,
+    };
+  }
+
+  // The issuer's own expiry, re-checked at decision time rather than only at
+  // import. A process that loaded evidence months ago is exactly the one that
+  // would otherwise keep honouring it forever.
+  if (bundle.expiresAt !== null && Date.parse(bundle.expiresAt) <= now.getTime()) {
+    return {
+      ...base,
+      qualified: false,
+      reason: 'EVIDENCE_STALE',
+      shortfalls: [
+        { requirement: 'evidence.expiresAt', required: `> ${now.toISOString()}`, actual: bundle.expiresAt },
+      ],
+      detail:
+        'the issuer marked this evidence as expiring, and that time has passed. The expiry ' +
+        'is the issuer\u2019s statement about its own work and is enforced whether or not the ' +
+        'operator policy sets a maximum age.',
+    };
+  }
 
   // Luak's own verdict is a floor, not a suggestion. No operator policy can
   // promote a DISQUALIFIED artifact, because the policy governs how much

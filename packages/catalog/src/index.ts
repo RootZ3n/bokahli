@@ -240,10 +240,18 @@ function parseArtifact(item: Record<string, unknown>): InternalArtifact {
   const facts = item['facts'] as ArtifactFacts;
   const capabilities = item['capabilities'] as ArtifactCapabilities;
   const qualification = item['qualification'] as Qualification;
-  if (qualification.status === 'QUALIFIED' && qualification.authority !== 'luak') {
+  // The catalog is an operator-editable file, and qualification is not the
+  // catalog's to grant. Bokahli issues none, and no import path writes one here:
+  // evidence lives in the qualification store, keyed to the exact artifact,
+  // runtime and hardware it was measured on. A QUALIFIED status in this file
+  // could therefore only ever be a hand edit, and it would still be reported in
+  // every served identity even though routing correctly refuses to honour it.
+  // Refusing at load keeps the API's answer and the router's answer the same.
+  if (qualification.status === 'QUALIFIED') {
     throw new CatalogError(
-      `artifact ${modelId} is marked QUALIFIED without Luak authority. ` +
-        'Only Luak may issue qualification.',
+      `artifact ${modelId} declares qualification.status QUALIFIED. The catalog cannot ` +
+        'confer qualification: it is issued by Luak, imported as evidence, and authorised ' +
+        'by the operator. Set INSTALLED_UNQUALIFIED here and import evidence instead.',
     );
   }
   const operational = item['operational'] as CatalogEntry['operational'];

@@ -22,8 +22,11 @@
  */
 import {
   ATTEMPT_OUTCOMES,
+  EMPTY_TRUST_ANCHOR,
+  FAILURE_ORIGINS,
   INFRASTRUCTURE_OUTCOMES,
   MODEL_ATTRIBUTABLE_OUTCOMES,
+  OUTCOME_ORIGIN_RULES,
   QUALIFICATION_CONTENT_HASH_FIELD,
   QUALIFICATION_KEY_FIELDS,
   SUPPORTED_QUALIFICATION_BUNDLE_VERSIONS,
@@ -38,9 +41,50 @@ import {
   type QualificationImportError,
   type QualificationImportErrorCode,
   type QualificationImportResult,
+  type ImportTrust,
   type QualificationKey,
+  type TrustAnchor,
 } from '@bokahli/contracts';
-import { canonicalHashExcluding } from './canonical.js';
+import { CanonicalizationError, canonicalHashExcluding } from './canonical.js';
+
+// ---------------------------------------------------------------------------
+// Bounds
+// ---------------------------------------------------------------------------
+
+/**
+ * Explicit limits on attacker-shaped input.
+ *
+ * Evidence is a file, and a file is the easiest thing in this system for
+ * someone to make enormous. None of these are tuning knobs: they are the point
+ * past which an import stops being evidence and starts being a workload.
+ */
+export const IMPORT_LIMITS = Object.freeze({
+  maxBundlesPerLoad: 1_000,
+  maxAttemptsPerBundle: 10_000,
+  maxKnownFailureModes: 256,
+  maxIdentifierLength: 512,
+  maxNoteLength: 4_096,
+  maxProvenanceRefs: 10_000,
+});
+
+/** Top-level fields a bundle may carry. Anything else is refused. */
+const ALLOWED_BUNDLE_FIELDS: readonly string[] = [
+  'bundleVersion', 'key', 'hardwareProfile', 'verdict', 'attempts',
+  'aggregate', 'provenance', 'generatedAt', 'expiresAt', 'contentHash',
+];
+const ALLOWED_ATTEMPT_FIELDS: readonly string[] = [
+  'attemptId', 'fixtureId', 'outcome', 'failureOrigin', 'failureReasonCode',
+  'score', 'contextTierTokens', 'tokens', 'timings', 'compliance', 'sourceRef',
+];
+const ALLOWED_AGGREGATE_FIELDS: readonly string[] = [
+  'attemptCount', 'sampleCount', 'outcomeCounts', 'meanScore', 'passRate',
+  'infrastructureFailureRate', 'schemaViolationRate', 'citationViolationRate',
+  'scoreStdDev', 'repeatabilityDisagreementRate', 'contextTierTokens', 'knownFailureModes',
+];
+const ALLOWED_PROVENANCE_FIELDS: readonly string[] = [
+  'claimedAuthority', 'sourceContractVersion', 'luakBundleIds', 'luakBundleHashes',
+  'claimedSignatureStatus', 'luakRepoCommit', 'note', 'verifiedByBokahli',
+];
 
 /** Floating-point aggregates are compared to this tolerance, not for equality. */
 const RATE_EPSILON = 1e-6;
@@ -69,8 +113,19 @@ export interface ImportContext {
   readonly runtimeName: string;
   readonly runtimeBuild: string;
   readonly hardwareProfileId: string;
+  /** Context length this deployment actually serves, in tokens. */
+  readonly servedContextTokens: number;
   /** Evaluation time. Injected so staleness is testable. */
   readonly now: Date;
+  /**
+   * The operator's trust anchor.
+   *
+   * Optional in the type and empty when omitted, so forgetting it fails closed:
+   * an import with no anchor produces evidence marked untrusted, which the
+   * policy layer then refuses to qualify on. There is no configuration mistake
+   * that turns arbitrary local JSON into authority.
+   */
+  readonly trustAnchor?: TrustAnchor;
   /** Keys already accepted, for duplicate detection. */
   readonly existingKeys?: ReadonlySet<string>;
 }
@@ -134,6 +189,25 @@ function validateKey(raw: unknown, bag: ErrorBag): raw is QualificationKey {
       ok = false;
     }
   }
+  for (const f of QUALIFICATION_KEY_FIELDS) {
+    const v = raw[f];
+    if (typeof v !== 'string') continue;
+    if (v.length > IMPORT_LIMITS.maxIdentifierLength) {
+      bag.add('MALFORMED_BUNDLE',
+        `key.${f} exceeds ${IMPORT_LIMITS.maxIdentifierLength} characters`, `key.${f}`);
+      ok = false;
+    }
+    // Leading/trailing whitespace and control characters make two identifiers
+    // that look identical to an operator compare unequal — or, worse, let one
+    // masquerade as another in a log. Refused rather than trimmed: silently
+    // rewriting an identifier is how a key stops meaning what it says.
+    if (v !== v.trim() || /[\u0000-\u001f\u007f]/.test(v)) {
+      bag.add('MALFORMED_BUNDLE',
+        `key.${f} must not carry surrounding whitespace or control characters`,
+        `key.${f}`, 'trimmed, printable', JSON.stringify(v).slice(0, 60));
+      ok = false;
+    }
+  }
   if (ok) {
     if (!isValidModelId(raw['modelId'])) {
       bag.add(
@@ -181,11 +255,52 @@ function validateAttempt(raw: unknown, i: number, bag: ErrorBag): boolean {
     'outcome',
     `must be one of ${ATTEMPT_OUTCOMES.join(', ')}`,
   );
-  need(strOrNull(raw['failureOrigin']), 'failureOrigin', 'must be a string or null');
+  need(
+    raw['failureOrigin'] === null ||
+      (FAILURE_ORIGINS as readonly string[]).includes(raw['failureOrigin'] as string),
+    'failureOrigin',
+    `must be null or one of ${FAILURE_ORIGINS.join(', ')} — an origin outside the ` +
+      'versioned vocabulary is one this build has no rule for, and a rule-less origin ' +
+      'is one that gets silently ignored',
+  );
   need(strOrNull(raw['failureReasonCode']), 'failureReasonCode', 'must be a string or null');
   need(numOrNull(raw['score']), 'score', 'must be a finite number or null');
   need(numOrNull(raw['contextTierTokens']), 'contextTierTokens', 'must be a number or null');
   need(strOrNull(raw['sourceRef']), 'sourceRef', 'must be a string or null');
+
+  // Attribution is a scoring rule, not raw evidence, so it is derived from the
+  // outcome here rather than taken from the exporter. This check refuses the
+  // combination that would let a bundle author move their own failures out of
+  // the pass-rate denominator by relabelling the origin.
+  const outcome = raw['outcome'] as AttemptOutcome;
+  const origin = raw['failureOrigin'];
+  if ((ATTEMPT_OUTCOMES as readonly string[]).includes(outcome)) {
+    const allowed = OUTCOME_ORIGIN_RULES[outcome];
+    if (outcome === 'PASS') {
+      if (origin !== null) {
+        bag.add('CONTRADICTORY_AGGREGATE',
+          `${at} is a PASS with a failure origin`, `${at}.failureOrigin`, 'null', String(origin));
+        ok = false;
+      }
+    } else if (origin === null || !(allowed as readonly string[]).includes(origin as string)) {
+      bag.add('CONTRADICTORY_AGGREGATE',
+        `${at} declares outcome ${outcome}, which requires a failure origin in ` +
+          `[${allowed.join(', ')}]. Infrastructure outcomes are excluded from the pass rate, ` +
+          'so the label cannot be chosen independently of the origin.',
+        `${at}.failureOrigin`, `one of [${allowed.join(', ')}]`, String(origin));
+      ok = false;
+    }
+  }
+
+  const unknown = Object.keys(raw).filter((k) => !ALLOWED_ATTEMPT_FIELDS.includes(k));
+  if (unknown.length > 0) {
+    bag.add('MALFORMED_BUNDLE',
+      `${at} carries unrecognised field(s): ${unknown.join(', ')}. Unknown fields are ` +
+        'refused rather than ignored, so a payload cannot smuggle in something that ' +
+        'looks authoritative to a later reader.',
+      at, 'no unrecognised fields', unknown.join(','));
+    ok = false;
+  }
 
   const score = raw['score'];
   if (typeof score === 'number' && (score < 0 || score > 1)) {
@@ -298,6 +413,20 @@ function validateAggregate(raw: unknown, bag: ErrorBag): boolean {
     }
   }
 
+  const unknownAgg = Object.keys(raw).filter((k) => !ALLOWED_AGGREGATE_FIELDS.includes(k));
+  if (unknownAgg.length > 0) {
+    bag.add('MALFORMED_BUNDLE',
+      `aggregate carries unrecognised field(s): ${unknownAgg.join(', ')}`,
+      'aggregate', 'no unrecognised fields', unknownAgg.join(','));
+    ok = false;
+  }
+  if (Array.isArray(raw['knownFailureModes']) &&
+      raw['knownFailureModes'].length > IMPORT_LIMITS.maxKnownFailureModes) {
+    bag.add('MALFORMED_BUNDLE',
+      `aggregate.knownFailureModes exceeds ${IMPORT_LIMITS.maxKnownFailureModes} entries`,
+      'aggregate.knownFailureModes');
+    ok = false;
+  }
   if (!Array.isArray(raw['knownFailureModes']) || raw['knownFailureModes'].some((m) => typeof m !== 'string')) {
     bag.add(
       'MALFORMED_BUNDLE',
@@ -353,8 +482,31 @@ function validateStructure(raw: unknown, bag: ErrorBag): raw is QualificationBun
     ok = false;
   }
 
+  const unknownTop = Object.keys(raw).filter((k) => !ALLOWED_BUNDLE_FIELDS.includes(k));
+  if (unknownTop.length > 0) {
+    bag.add(
+      'MALFORMED_BUNDLE',
+      `bundle carries unrecognised top-level field(s): ${unknownTop.join(', ')}. ` +
+        'Unknown fields are refused, not ignored: a payload must not be able to carry ' +
+        'something that reads as a trust marker to a later consumer.',
+      '$',
+      `only [${ALLOWED_BUNDLE_FIELDS.join(', ')}]`,
+      unknownTop.join(','),
+    );
+    ok = false;
+  }
+
   if (!Array.isArray(raw['attempts'])) {
     bag.add('MALFORMED_BUNDLE', 'attempts must be an array', 'attempts');
+    ok = false;
+  } else if (raw['attempts'].length > IMPORT_LIMITS.maxAttemptsPerBundle) {
+    bag.add(
+      'MALFORMED_BUNDLE',
+      `attempts exceeds ${IMPORT_LIMITS.maxAttemptsPerBundle}; an import is evidence, not a workload`,
+      'attempts',
+      `<= ${IMPORT_LIMITS.maxAttemptsPerBundle}`,
+      String(raw['attempts'].length),
+    );
     ok = false;
   } else {
     if (raw['attempts'].length === 0) {
@@ -377,14 +529,52 @@ function validateStructure(raw: unknown, bag: ErrorBag): raw is QualificationBun
     bag.add('PROVENANCE_INVALID', 'provenance must be an object', 'provenance');
     ok = false;
   } else {
-    if (prov['authority'] !== 'luak') {
+    // The payload names an authority. That is a claim, recorded as one; it is
+    // not what authorises anything (see ImportTrust). Requiring the literal
+    // "luak" here only rejects evidence that does not even claim the right
+    // origin — it grants nothing to evidence that does.
+    if (prov['claimedAuthority'] !== 'luak') {
       bag.add(
         'PROVENANCE_INVALID',
-        'provenance.authority must be "luak" — Bokahli imports qualification, it does not issue it',
-        'provenance.authority',
+        'provenance.claimedAuthority must be "luak". Note this is a claim the payload ' +
+          'makes about itself and confers no trust; authorisation comes from the ' +
+          "operator's trust anchor.",
+        'provenance.claimedAuthority',
         'luak',
-        String(prov['authority']),
+        String(prov['claimedAuthority']),
       );
+      ok = false;
+    }
+    if (prov['verifiedByBokahli'] !== false) {
+      bag.add(
+        'PROVENANCE_INVALID',
+        'provenance.verifiedByBokahli must be present and literally false. Bokahli holds ' +
+          'no Luak key and cannot verify a Luak signature; a payload asserting otherwise ' +
+          'is asserting something about Bokahli that Bokahli knows to be untrue.',
+        'provenance.verifiedByBokahli',
+        'false',
+        String(prov['verifiedByBokahli']),
+      );
+      ok = false;
+    }
+    const unknownProv = Object.keys(prov).filter((k) => !ALLOWED_PROVENANCE_FIELDS.includes(k));
+    if (unknownProv.length > 0) {
+      bag.add('PROVENANCE_INVALID',
+        `provenance carries unrecognised field(s): ${unknownProv.join(', ')}`,
+        'provenance', 'no unrecognised fields', unknownProv.join(','));
+      ok = false;
+    }
+    for (const arr of ['luakBundleIds', 'luakBundleHashes'] as const) {
+      const v = prov[arr];
+      if (Array.isArray(v) && v.length > IMPORT_LIMITS.maxProvenanceRefs) {
+        bag.add('PROVENANCE_INVALID',
+          `provenance.${arr} exceeds ${IMPORT_LIMITS.maxProvenanceRefs} entries`, `provenance.${arr}`);
+        ok = false;
+      }
+    }
+    if (typeof prov['note'] === 'string' && prov['note'].length > IMPORT_LIMITS.maxNoteLength) {
+      bag.add('PROVENANCE_INVALID',
+        `provenance.note exceeds ${IMPORT_LIMITS.maxNoteLength} characters`, 'provenance.note');
       ok = false;
     }
     if (!str(prov['sourceContractVersion'])) {
@@ -629,13 +819,31 @@ export function importQualificationBundle(raw: unknown, ctx: ImportContext): Qua
     return { ok: false, errors: bag.list };
   }
 
-  // 2. Content hash over the canonical form, excluding the hash field itself.
-  const recomputed = canonicalHashExcluding(bundle, QUALIFICATION_CONTENT_HASH_FIELD);
-  if (recomputed !== bundle.contentHash) {
+  // 2. Payload integrity: the canonical hash Bokahli computes for itself.
+  //
+  //    This is integrity and only integrity. The hash is unkeyed, so anyone who
+  //    can write the file can recompute it after editing; a match proves the
+  //    payload is intact as received, never that Luak produced it. Authorship
+  //    is settled at step 10, by the operator, not here.
+  let recomputed: string;
+  try {
+    recomputed = canonicalHashExcluding(bundle, QUALIFICATION_CONTENT_HASH_FIELD);
+  } catch (err) {
+    bag.add(
+      'UNCANONICALISABLE',
+      `the payload cannot be canonicalised, so no hash can be computed over it: ${
+        (err as Error).message
+      }`,
+      '$',
+    );
+    return { ok: false, errors: bag.list };
+  }
+  const hashVerified = recomputed === bundle.contentHash;
+  if (!hashVerified) {
     bag.add(
       'CONTENT_HASH_MISMATCH',
       'the recomputed canonical hash does not match the stated contentHash: this payload ' +
-        'is not the payload that was signed off',
+        'is not the payload that was sealed',
       'contentHash',
       recomputed,
       bundle.contentHash,
@@ -751,7 +959,7 @@ export function importQualificationBundle(raw: unknown, ctx: ImportContext): Qua
   // 8. Aggregates must agree with the attempts they summarise.
   checkAggregateConsistency(bundle.attempts, bundle.aggregate, bag);
 
-  // 9. Duplicate key.
+  // 8b. Duplicate key.
   if (ctx.existingKeys) {
     const ks = QUALIFICATION_KEY_FIELDS.map((f) => String(key[f])).join('|');
     if (ctx.existingKeys.has(ks)) {
@@ -765,8 +973,54 @@ export function importQualificationBundle(raw: unknown, ctx: ImportContext): Qua
     }
   }
 
+  // 9. Context tier. Measurements taken at one context length are not
+  //    measurements of another, so the tier is bound to the deployment rather
+  //    than left to a policy line an operator might not write.
+  if (bundle.aggregate.contextTierTokens === null) {
+    bag.add(
+      'CONTEXT_TIER_MISMATCH',
+      'aggregate.contextTierTokens is unknown. A verdict that does not record the context ' +
+        'it was earned at cannot be bound to a deployment that serves a specific one.',
+      'aggregate.contextTierTokens',
+      String(ctx.servedContextTokens),
+      'null',
+    );
+  } else if (bundle.aggregate.contextTierTokens !== ctx.servedContextTokens) {
+    bag.add(
+      'CONTEXT_TIER_MISMATCH',
+      'the evidence was produced at a different context tier than this deployment serves',
+      'aggregate.contextTierTokens',
+      String(ctx.servedContextTokens),
+      String(bundle.aggregate.contextTierTokens),
+    );
+  }
+
+  // 10. Import trust. The only step whose input comes from the operator rather
+  //     than from the payload, and therefore the only step that can authorise
+  //     anything. Everything above establishes what the evidence says and that
+  //     it is internally consistent; none of it establishes who wrote it.
+  const anchor = ctx.trustAnchor ?? EMPTY_TRUST_ANCHOR;
+  const pinned = hashVerified && anchor.pinnedEvidenceDigests.includes(bundle.contentHash);
+  const importTrust: ImportTrust = pinned
+    ? { accepted: true, basis: 'OPERATOR_PINNED_DIGEST', anchorRef: anchor.anchorRef }
+    : { accepted: false, basis: 'NONE', anchorRef: anchor.anchorRef };
+
   if (!bag.empty) return { ok: false, errors: bag.list };
-  return { ok: true, bundle: deepFreeze(bundle) };
+
+  const frozen = deepFreeze(bundle);
+  return {
+    ok: true,
+    accepted: Object.freeze({
+      bundle: frozen,
+      payloadIntegrity: Object.freeze({
+        algorithm: 'bokahli-canonical-json-sha256-v1' as const,
+        contentHash: recomputed,
+        verified: hashVerified,
+      }),
+      upstreamProvenance: frozen.provenance,
+      importTrust: Object.freeze(importTrust),
+    }),
+  };
 }
 
 /**

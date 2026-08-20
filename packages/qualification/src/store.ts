@@ -17,12 +17,12 @@
  */
 import {
   qualificationKeyString,
-  type QualificationBundle,
+  type AcceptedQualificationBundle,
   type QualificationImportError,
   type QualificationKey,
   type TaskClass,
 } from '@bokahli/contracts';
-import { importQualificationBundle, type ImportContext } from './importer.js';
+import { importQualificationBundle, IMPORT_LIMITS, type ImportContext } from './importer.js';
 
 export interface RejectedBundle {
   /** Best-effort identification of what was rejected, for the operator's log. */
@@ -54,7 +54,7 @@ export interface DeploymentKey {
 }
 
 export class QualificationStore {
-  readonly #byKey = new Map<string, QualificationBundle>();
+  readonly #byKey = new Map<string, AcceptedQualificationBundle>();
   #loadedAt = '1970-01-01T00:00:00.000Z';
 
   /** An empty store. This is the state Phase 1 shipped, and the default. */
@@ -73,11 +73,38 @@ export class QualificationStore {
     const rejected: RejectedBundle[] = [];
     let accepted = 0;
 
+    if (raws.length > IMPORT_LIMITS.maxBundlesPerLoad) {
+      throw new RangeError(
+        `refusing to import ${raws.length} bundles in one load; the limit is ` +
+          `${IMPORT_LIMITS.maxBundlesPerLoad}`,
+      );
+    }
+
     for (const [index, raw] of raws.entries()) {
       const existingKeys = new Set(this.#byKey.keys());
-      const result = importQualificationBundle(raw, { ...ctx, existingKeys });
+      // The importer is handed input someone else wrote. It is written to
+      // return typed rejections rather than throw, and this catch is the
+      // guarantee that a bug in that promise degrades into a rejection rather
+      // than taking down whatever called us.
+      let result;
+      try {
+        result = importQualificationBundle(raw, { ...ctx, existingKeys });
+      } catch (err) {
+        result = {
+          ok: false as const,
+          errors: [
+            {
+              code: 'MALFORMED_BUNDLE' as const,
+              detail: `import threw while validating this bundle: ${(err as Error).message}`,
+              field: null,
+              expected: null,
+              actual: null,
+            },
+          ],
+        };
+      }
       if (result.ok) {
-        this.#byKey.set(qualificationKeyString(result.bundle.key), result.bundle);
+        this.#byKey.set(qualificationKeyString(result.accepted.bundle.key), result.accepted);
         accepted += 1;
         continue;
       }
@@ -103,11 +130,23 @@ export class QualificationStore {
   }
 
   /**
+   * How many held bundles the operator has actually authorised.
+   *
+   * Reported separately from `size` because the difference is the interesting
+   * number: evidence can be present, intact, and still authorise nothing.
+   */
+  get trustedSize(): number {
+    let n = 0;
+    for (const e of this.#byKey.values()) if (e.importTrust.accepted) n += 1;
+    return n;
+  }
+
+  /**
    * Exact lookup. A miss on any key element is a miss — there is no nearest
    * match, no fallback to a different quantisation, and no "close enough"
    * runtime build.
    */
-  find(key: QualificationKey): QualificationBundle | null {
+  find(key: QualificationKey): AcceptedQualificationBundle | null {
     return this.#byKey.get(qualificationKeyString(key)) ?? null;
   }
 
@@ -125,10 +164,10 @@ export class QualificationStore {
     deployment: DeploymentKey,
     taskClass: TaskClass,
     taskClassContractVersion: string,
-  ): readonly QualificationBundle[] {
-    const matches: QualificationBundle[] = [];
-    for (const bundle of this.#byKey.values()) {
-      const k = bundle.key;
+  ): readonly AcceptedQualificationBundle[] {
+    const matches: AcceptedQualificationBundle[] = [];
+    for (const entry of this.#byKey.values()) {
+      const k = entry.bundle.key;
       if (
         k.modelId === deployment.modelId &&
         k.artifactDigest === deployment.artifactDigest &&
@@ -139,22 +178,22 @@ export class QualificationStore {
         k.taskClass === taskClass &&
         k.taskClassContractVersion === taskClassContractVersion
       ) {
-        matches.push(bundle);
+        matches.push(entry);
       }
     }
     // Deterministic: newest first, then by key string so equal timestamps never
     // depend on Map insertion order.
     return matches.sort((a, b) => {
-      const t = Date.parse(b.generatedAt) - Date.parse(a.generatedAt);
+      const t = Date.parse(b.bundle.generatedAt) - Date.parse(a.bundle.generatedAt);
       if (t !== 0) return t;
-      const ka = qualificationKeyString(a.key);
-      const kb = qualificationKeyString(b.key);
+      const ka = qualificationKeyString(a.bundle.key);
+      const kb = qualificationKeyString(b.bundle.key);
       return ka < kb ? -1 : ka > kb ? 1 : 0;
     });
   }
 
   /** Everything held, in a stable order. For operator inspection only. */
-  all(): readonly QualificationBundle[] {
+  all(): readonly AcceptedQualificationBundle[] {
     return [...this.#byKey.entries()]
       .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
       .map(([, b]) => b);
@@ -162,6 +201,6 @@ export class QualificationStore {
 
   /** Task classes any evidence exists for, whatever its verdict. */
   taskClassesWithEvidence(): readonly string[] {
-    return [...new Set([...this.#byKey.values()].map((b) => b.key.taskClass))].sort();
+    return [...new Set([...this.#byKey.values()].map((e) => e.bundle.key.taskClass))].sort();
   }
 }

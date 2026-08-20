@@ -167,6 +167,41 @@ export type FailureOrigin =
   | 'HARNESS'
   | 'UNKNOWN';
 
+/**
+ * The closed vocabulary, bound to this build.
+ *
+ * Accepting arbitrary strings here would let an exporter invent an origin
+ * Bokahli has no rule for, and an origin with no rule is an origin that gets
+ * ignored. A value outside this list is a rejection, not a passthrough.
+ */
+export const FAILURE_ORIGINS: readonly FailureOrigin[] = [
+  'MODEL',
+  'PROVIDER',
+  'NETWORK',
+  'TEST',
+  'JUDGE',
+  'HARNESS',
+  'UNKNOWN',
+];
+
+/**
+ * Which origins are consistent with which outcomes.
+ *
+ * This is the check that stops a bundle author labelling their own model's
+ * failures as somebody else's problem. An attempt marked PROVIDER_FAILURE whose
+ * origin is MODEL is not a provider failure, and counting it as one would
+ * remove a real failure from the pass-rate denominator.
+ */
+export const OUTCOME_ORIGIN_RULES: Readonly<Record<AttemptOutcome, readonly FailureOrigin[]>> =
+  Object.freeze({
+    PASS: [],
+    PARTIAL: ['MODEL', 'UNKNOWN'],
+    FAIL: ['MODEL', 'UNKNOWN'],
+    INCOMPLETE: ['MODEL', 'UNKNOWN'],
+    PROVIDER_FAILURE: ['PROVIDER', 'NETWORK'],
+    HARNESS_FAILURE: ['HARNESS', 'TEST', 'JUDGE'],
+  });
+
 /** Outcomes attributable to the model under test rather than to infrastructure. */
 export const MODEL_ATTRIBUTABLE_OUTCOMES: readonly AttemptOutcome[] = [
   'PASS',
@@ -278,15 +313,26 @@ export interface QualificationAggregate {
 // ---------------------------------------------------------------------------
 
 /**
- * Where the evidence came from, preserved verbatim.
+ * Where the evidence *claims* to have come from.
  *
- * `luakBundleHashes` and `luakSignatureStatus` are Luak's own integrity claims,
- * carried through unmodified. Bokahli reports them; it does not upgrade them.
- * In particular a `legacy_unverified` or `unsigned_key_missing` bundle stays
- * exactly that after import.
+ * Every field here is attacker-controlled if the evidence file is. A bundle can
+ * say `authority: "luak"`, invent bundle ids, quote another bundle's hash, and
+ * assert `luakSignatureStatus: "valid"` — all of it is text the payload chose
+ * for itself, and none of it is checkable by Bokahli, which holds no Luak key
+ * and performs no Luak-side verification.
+ *
+ * So this type is provenance and nothing else: a record of the claim, kept for
+ * audit. It never becomes trust. `verifiedByBokahli` is typed as the literal
+ * `false` so the compiler rejects any code that tries to set it otherwise; the
+ * only thing that can authorise routing is `ImportTrust`, which is derived from
+ * operator configuration and never from the payload.
  */
-export interface QualificationProvenance {
-  readonly authority: 'luak';
+export interface UpstreamProvenance {
+  /**
+   * The authority the payload claims issued it. **Unverified.** Read this as
+   * "the file says Luak", never as "Luak said".
+   */
+  readonly claimedAuthority: string;
   /** Luak's own contract/bundle version the source records were produced under. */
   readonly sourceContractVersion: string;
   /** Luak bundle ids that were aggregated into this evidence. */
@@ -294,16 +340,81 @@ export interface QualificationProvenance {
   /** The `bundle_hash` each source bundle carried. */
   readonly luakBundleHashes: readonly string[];
   /**
-   * Luak's signature verdict for the source bundles, verbatim:
-   * "valid" | "forged" | "legacy_unverified" | "unsigned_key_missing" | "tampered",
-   * or null when the exporter did not state one.
+   * The signature verdict the payload claims Luak reached. **Unverified, and
+   * unverifiable here.** Luak signs with HMAC-SHA256 under a shared secret;
+   * Bokahli deliberately does not hold that key, because a key that lets
+   * Bokahli check a signature is the same key that lets Bokahli forge one.
+   * A payload asserting "valid" has asserted a string about itself.
    */
-  readonly luakSignatureStatus: string | null;
-  /** Luak repo commit the evidence was produced at, where stated. */
+  readonly claimedSignatureStatus: string | null;
+  /** Luak repo commit the evidence claims to have been produced at. */
   readonly luakRepoCommit: string | null;
-  /** Free-form operator note. Never load-bearing. */
+  /** Free-form note. Never load-bearing. */
   readonly note: string | null;
+  /**
+   * Bokahli has not verified any of the above and structurally cannot.
+   * Typed as the literal `false`: this is a compile-time guarantee, not a
+   * default that a later edit can quietly flip.
+   */
+  readonly verifiedByBokahli: false;
 }
+
+/**
+ * What Bokahli itself derived from the bytes it received.
+ *
+ * This is the one integrity claim Bokahli can make on its own, and it is
+ * narrower than it looks: a matching hash proves the payload is intact as
+ * received and has not been edited since it was sealed. It proves nothing about
+ * who sealed it. The hash is unkeyed, so anyone who can write the file can
+ * recompute it — integrity, never authorship.
+ */
+export interface PayloadIntegrity {
+  readonly algorithm: 'bokahli-canonical-json-sha256-v1';
+  readonly contentHash: string;
+  readonly verified: boolean;
+}
+
+/**
+ * Whether the operator has authorised this evidence.
+ *
+ * The only thing in the system that can turn evidence into permission, and the
+ * only one derived entirely outside the payload. Phase 2A implements one basis:
+ * an operator-pinned list of evidence content hashes. An empty anchor trusts
+ * nothing, which is the default and the deployed state.
+ *
+ * No cryptography was invented for this. Pinning a digest an operator has
+ * looked at is a smaller, more honest claim than a signature scheme Bokahli
+ * would have had to design itself.
+ */
+export interface ImportTrust {
+  readonly accepted: boolean;
+  readonly basis: ImportTrustBasis;
+  /** Where the operator recorded the decision, for audit. */
+  readonly anchorRef: string | null;
+}
+
+export type ImportTrustBasis =
+  /** The computed content hash is on the operator's pinned list. */
+  | 'OPERATOR_PINNED_DIGEST'
+  /** Nothing authorised it. The default, and the only value that ever fails closed wrong. */
+  | 'NONE';
+
+/**
+ * The operator's trust anchor. Supplied to the importer; never read from a
+ * bundle, never defaulted to something permissive.
+ */
+export interface TrustAnchor {
+  /** Content hashes the operator has explicitly pinned. */
+  readonly pinnedEvidenceDigests: readonly string[];
+  /** Human-meaningful pointer to where these were recorded. */
+  readonly anchorRef: string | null;
+}
+
+/** An anchor that authorises nothing. The default everywhere. */
+export const EMPTY_TRUST_ANCHOR: TrustAnchor = Object.freeze({
+  pinnedEvidenceDigests: Object.freeze([]) as readonly string[],
+  anchorRef: null,
+});
 
 // ---------------------------------------------------------------------------
 // The bundle
@@ -324,7 +435,8 @@ export interface QualificationBundle {
   readonly verdict: 'QUALIFIED' | 'DISQUALIFIED';
   readonly attempts: readonly QualificationAttempt[];
   readonly aggregate: QualificationAggregate;
-  readonly provenance: QualificationProvenance;
+  /** What the payload claims about its origin. Untrusted by construction. */
+  readonly provenance: UpstreamProvenance;
   /** ISO-8601. When the evidence was generated, not when it was imported. */
   readonly generatedAt: string;
   /**
@@ -335,9 +447,27 @@ export interface QualificationBundle {
   readonly expiresAt: string | null;
   /**
    * sha256 over the canonical form of this bundle with `contentHash` itself
-   * excluded. Recomputed and checked on import.
+   * excluded, under an explicit domain tag. Recomputed and checked on import.
    */
   readonly contentHash: string;
+}
+
+/**
+ * A bundle the importer accepted, with Bokahli's own findings attached.
+ *
+ * The three concepts are kept in three separate fields on purpose. They are
+ * routinely conflated, and conflating them is precisely how forged evidence
+ * gets authority: integrity is mistaken for authorship, and a claimed
+ * provenance is mistaken for a checked one.
+ */
+export interface AcceptedQualificationBundle {
+  readonly bundle: QualificationBundle;
+  /** Derived by Bokahli from the received bytes. Integrity only. */
+  readonly payloadIntegrity: PayloadIntegrity;
+  /** Copied from the payload. Never believed. */
+  readonly upstreamProvenance: UpstreamProvenance;
+  /** Derived from operator configuration. The only thing that authorises. */
+  readonly importTrust: ImportTrust;
 }
 
 /** A bundle as it appears before its hash is computed or checked. */
@@ -374,7 +504,18 @@ export type QualificationImportErrorCode =
   /** Provenance is absent, or claims an authority other than Luak. */
   | 'PROVENANCE_INVALID'
   /** Another accepted bundle already occupies this exact key. */
-  | 'DUPLICATE_KEY';
+  | 'DUPLICATE_KEY'
+  /**
+   * The payload could not be canonicalised: too deeply nested, an unsafe
+   * integer, or a value with no JSON representation. A typed refusal rather
+   * than a crash, because the input is a file someone else wrote.
+   */
+  | 'UNCANONICALISABLE'
+  /**
+   * The evidence describes a context tier this deployment does not serve.
+   * Measurements taken at one context length are not measurements of another.
+   */
+  | 'CONTEXT_TIER_MISMATCH';
 
 export interface QualificationImportError {
   readonly code: QualificationImportErrorCode;
@@ -387,7 +528,7 @@ export interface QualificationImportError {
 }
 
 export type QualificationImportResult =
-  | { readonly ok: true; readonly bundle: QualificationBundle }
+  | { readonly ok: true; readonly accepted: AcceptedQualificationBundle }
   | { readonly ok: false; readonly errors: readonly QualificationImportError[] };
 
 // ---------------------------------------------------------------------------
@@ -454,6 +595,16 @@ export type QualificationDecisionReason =
   | 'DISQUALIFIED_BY_AUTHORITY'
   /** Evidence exists and is otherwise fine, but is older than policy allows. */
   | 'EVIDENCE_STALE'
+  /**
+   * Evidence exists, its payload is intact, and the operator has not authorised
+   * it. A correct content hash is integrity, not permission.
+   */
+  | 'EVIDENCE_NOT_TRUSTED'
+  /**
+   * The policy omits a requirement this build refuses to leave unstated.
+   * A half-written policy must not silently disable the checks it forgot.
+   */
+  | 'POLICY_INCOMPLETE'
   /** A required measurement is unknown and the policy does not accept unknowns. */
   | 'EVIDENCE_INCOMPLETE';
 
@@ -477,8 +628,19 @@ export interface QualificationDecision {
   /** Content hash of the evidence relied on, or null when none was found. */
   readonly evidenceHash: string | null;
   readonly evidenceGeneratedAt: string | null;
-  /** Authority that issued the underlying verdict. Never "bokahli". */
+  /**
+   * Who Bokahli can actually account for.
+   *
+   * `'luak'` **only** when the operator's trust anchor accepted this evidence.
+   * A payload claiming `authority: "luak"` does not put it here — that claim
+   * lives in `claimedAuthority`, and the gap between the two fields is the
+   * whole point of them being two fields.
+   */
   readonly authority: 'luak' | 'none';
+  /** What the evidence claimed about itself. Unverified. */
+  readonly claimedAuthority: string | null;
+  /** How, if at all, the operator authorised this evidence. */
+  readonly importTrustBasis: ImportTrustBasis;
   readonly detail: string;
 }
 
@@ -499,6 +661,8 @@ export function notQualified(
     evidenceHash: null,
     evidenceGeneratedAt: null,
     authority: 'none',
+    claimedAuthority: null,
+    importTrustBasis: 'NONE',
     detail,
   };
 }

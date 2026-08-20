@@ -163,11 +163,71 @@ authority.
 Luak's `sha256Object` is `JSON.stringify(obj, null, 0)` — insertion-order
 dependent. It is stable inside the process that built the bundle and stops being
 stable the moment anything reorders keys, which JSON explicitly permits. Bokahli
-hashes its own bundles with a JCS-style canonical form (sorted keys, no
-insignificant whitespace, arrays untouched) and carries Luak's `bundle_hash`
+hashes its own bundles canonically instead, and carries Luak's `bundle_hash`
 alongside as provenance rather than adopting it as identity.
 `luakCompatBundleHash()` reproduces Luak's algorithm exactly so the divergence
 stays demonstrable rather than asserted; a test pins it.
+
+Bokahli's form is **close to RFC 8785 (JCS) and is not claimed to be it**:
+
+- Keys sorted by UTF-16 code unit, no insignificant whitespace, arrays never
+  reordered, `-0` normalised to `0`, numbers via ECMAScript `Number::toString`.
+- The preimage carries an explicit domain tag (`bokahli.canonical-json.sha256.v1`)
+  and, where a field is excluded, that field's *name*. A digest computed for one
+  purpose therefore cannot be replayed as a digest for another.
+- Non-finite numbers, `undefined`, and integers outside the safe range are
+  **rejected**, not coerced. `JSON.parse` silently rounds `9007199254740993`, so
+  accepting it would let two different documents reach one digest.
+- Nesting is bounded at 64 levels, so an attacker-supplied file produces a typed
+  rejection rather than a stack overflow.
+- No Unicode normalisation, matching JCS. `"e\u0301"` and `"\u00e9"` hash
+  differently, and the importer does not rewrite anyone's evidence text.
+
+Unknown fields are refused at every level rather than ignored, so a payload
+cannot carry something that reads as a trust marker to a later consumer.
+
+### Three concepts that must never be one
+
+This is the part the Phase 2A audit found broken, and it is the most important
+section in this document.
+
+The first implementation let a bundle carry `authority: "luak"` and
+`luakSignatureStatus: "valid"`, verified an **unkeyed** content hash over it,
+and then reported `authority: "luak"` in the routing decision. Every one of
+those inputs is written by whoever wrote the file. An attacker who could drop
+JSON into the evidence directory could therefore qualify any installed model:
+the hash is unkeyed, so recomputing it after an edit costs nothing, and the
+provenance fields are simply text. Integrity was being read as authorship.
+
+They are now three separate fields, computed from three different places, and
+the routing gate depends on exactly one of them:
+
+| Concept | Derived from | Proves | Can authorise? |
+|---|---|---|---|
+| `payloadIntegrity` | Bokahli's own canonical hash of the received bytes | the payload is intact as received and unedited since it was sealed | **no** |
+| `upstreamProvenance` | fields inside the payload | *what the payload claims* about its origin — nothing more | **no** |
+| `importTrust` | the operator's trust anchor, supplied to the importer | that a human authorised this specific evidence | **yes, only this** |
+
+Concretely:
+
+- `UpstreamProvenance.claimedAuthority` and `claimedSignatureStatus` are named
+  for what they are. The type carries `verifiedByBokahli: false` typed as the
+  literal `false`, so the compiler rejects any code that tries to set it
+  otherwise — the same trick Luak uses for `affectsLeaderboard`.
+- `QualificationDecision.authority` is `'luak'` **only** when
+  `importTrust.accepted` is true. What the payload claimed travels beside it in
+  `claimedAuthority`, so the two can differ and be seen to differ.
+- `evaluateBundle` refuses any untrusted bundle with `EVIDENCE_NOT_TRUSTED`
+  before it looks at a single threshold, and untrusted evidence cannot supply
+  ranking inputs either — a forged `passRate: 1.0` must not reorder candidates
+  it cannot be routed to.
+
+The Phase 2A trust anchor is an **operator-pinned list of evidence content
+hashes**. It is deliberately small: an operator reads a bundle, records its
+digest, and that digest — and only that digest — is authorised. Editing the
+evidence changes the hash, so re-sealing a modified copy revokes authorisation
+rather than preserving it. An empty anchor authorises nothing and is the default
+everywhere, including `QualificationGate.empty()`.
 
 ### Signatures
 
@@ -176,14 +236,16 @@ does not hold `CRUCIBLE_HMAC_KEY`: a key that lets Bokahli verify a Luak
 signature is the same key that lets Bokahli forge one, which would dissolve the
 authority boundary this whole document is about. So for Phase 2A:
 
-- Bokahli verifies its own canonical content hash — no secret required.
-- Luak's `bundle_hash` and `signature_status` are carried through verbatim,
-  never upgraded. An `unsigned_key_missing` bundle stays `unsigned_key_missing`
-  after import, and a test asserts it.
+- Bokahli verifies its own canonical content hash — no secret required, and it
+  proves integrity only.
+- Luak's `bundle_hash` and signature status are carried through verbatim as
+  claims, never upgraded and never load-bearing.
+- Authorisation comes from the operator-pinned digest described above.
 - No new cryptography was written.
 
-Asymmetric signing would close this properly. It is named as a Phase 2B item,
-not improvised here.
+Asymmetric signing — where Luak signs with a private key and Bokahli verifies
+with a public one — would let this become automatic without giving Bokahli
+forging power. It is named as future work, not improvised here.
 
 ### Unknown is not favourable
 

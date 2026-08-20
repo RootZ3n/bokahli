@@ -30,7 +30,9 @@ import {
   RUNTIME_BUILD,
   RUNTIME_NAME,
   bundle,
+  completePolicy,
   importContext,
+  trustedImportContext,
 } from '../../qualification/test/fixtures.js';
 
 const PATH_A = '/models/testmodel-a.gguf';
@@ -110,10 +112,15 @@ function startBackend(serving) {
   });
 }
 
-function gateWith({ bundles = [], policies = {} } = {}) {
+/**
+ * `trusted` defaults to true so a test that wants a qualification says so once.
+ * The untrusted case gets its own test below rather than being the ambient
+ * default nobody reads — "present but unauthorised" is its own outcome.
+ */
+function gateWith({ bundles = [], policies = {}, trusted = true } = {}) {
   const store = QualificationStore.empty();
   if (bundles.length > 0) {
-    const report = store.load(bundles, importContext());
+    const report = store.load(bundles, trusted ? trustedImportContext(bundles) : importContext());
     assert.equal(report.rejected.length, 0, JSON.stringify(report.rejected, null, 2));
   }
   return new QualificationGate({
@@ -137,7 +144,7 @@ function ctx(port, gate, catalog) {
   };
 }
 
-const LOOSE_POLICY = { test_log_triage: { minSampleCount: 1, minPassRate: 0.5 } };
+const LOOSE_POLICY = { test_log_triage: completePolicy() };
 const EXACT_A = { mode: 'EXACT', modelId: MODEL_A, artifactDigest: DIGEST_A };
 
 // ---------------------------------------------------------------------------
@@ -279,7 +286,7 @@ test('PROFILE accepts a profile the evidence does support', async () => {
 
 test('PROFILE reports the specific shortfall, not a generic refusal', async () => {
   const be = await startBackend(ARTIFACT_A);
-  const strict = { test_log_triage: { minSampleCount: 500 } };
+  const strict = { test_log_triage: completePolicy({ minSampleCount: 500 }) };
   const { outcome } = await route(
     { mode: 'PROFILE', requirements: { requireQualified: true, requiredTaskClass: 'test_log_triage' } },
     ctx(be.port, gateWith({ bundles: [bundle()], policies: strict }), catalogOf(ARTIFACT_A)),

@@ -9,7 +9,7 @@
  * about the deployed model. The installed Q2_K artifact is unqualified, and no
  * fixture here says otherwise.
  */
-import { canonicalHash } from '../dist/canonical.js';
+import { canonicalHashExcluding } from '../dist/canonical.js';
 
 export const RUNTIME_NAME = 'fakeruntime';
 export const RUNTIME_BUILD = 'b00001-testpin';
@@ -173,13 +173,14 @@ export function aggregateOf(attempts, overrides = {}) {
 
 export function provenance(overrides = {}) {
   return {
-    authority: 'luak',
+    claimedAuthority: 'luak',
     sourceContractVersion: 'luak-evidence-bundle-1.0.0',
     luakBundleIds: ['run_2026-08-19_fx-1_testmodel-a_0000'],
     luakBundleHashes: [`sha256:${'c'.repeat(64)}`],
-    luakSignatureStatus: 'unsigned_key_missing',
+    claimedSignatureStatus: 'unsigned_key_missing',
     luakRepoCommit: '46e99cf920cf40e932720bb65d3f1b13bce6f1dc',
     note: 'synthetic fixture',
+    verifiedByBokahli: false,
     ...overrides,
   };
 }
@@ -204,7 +205,18 @@ export function bundle(overrides = {}) {
     expiresAt: null,
     ...stripFixtureKeys(overrides),
   };
-  return { ...unhashed, contentHash: canonicalHash(unhashed) };
+  return seal(unhashed);
+}
+
+/**
+ * Seal a bundle the way a legitimate exporter would: the same domain-tagged,
+ * field-labelled preimage the importer recomputes.
+ */
+export function seal(unhashed) {
+  return {
+    ...unhashed,
+    contentHash: canonicalHashExcluding({ ...unhashed, contentHash: '' }, 'contentHash'),
+  };
 }
 
 /** Build a bundle whose stated hash is deliberately wrong. */
@@ -212,18 +224,60 @@ export function bundleWithBadHash(overrides = {}) {
   return { ...bundle(overrides), contentHash: `sha256:${'0'.repeat(64)}` };
 }
 
+/**
+ * A trust anchor pinning exactly the given bundles.
+ *
+ * Written out at every call site on purpose. Trust is the one thing in this
+ * system that must never be acquired by default, and a test fixture that
+ * granted it implicitly would hide the very step under audit.
+ */
+export function anchorFor(...bundles) {
+  return {
+    pinnedEvidenceDigests: bundles.map((b) => b.contentHash),
+    anchorRef: 'test-operator-anchor',
+  };
+}
+
 function stripFixtureKeys(o) {
   const { key: _k, aggregate: _a, provenance: _p, attempts: _at, hardwareProfileId: _h, ...rest } = o;
   return rest;
 }
 
+export const SERVED_CONTEXT_TOKENS = 32768;
+
+/**
+ * An import context with **no trust anchor**: evidence loads and authorises
+ * nothing. This is the default so that any test which expects qualification has
+ * to ask for trust in so many words.
+ */
 export function importContext(overrides = {}) {
   return {
     installedArtifacts: INSTALLED,
     runtimeName: RUNTIME_NAME,
     runtimeBuild: RUNTIME_BUILD,
     hardwareProfileId: HARDWARE_PROFILE,
+    servedContextTokens: SERVED_CONTEXT_TOKENS,
     now: NOW,
+    ...overrides,
+  };
+}
+
+/** An import context in which the operator has pinned the given bundles. */
+export function trustedImportContext(bundles, overrides = {}) {
+  return importContext({ trustAnchor: anchorFor(...bundles), ...overrides });
+}
+
+/**
+ * A policy that states every requirement this build insists an operator state.
+ * The values are arbitrary test values, not recommendations.
+ */
+export function completePolicy(overrides = {}) {
+  return {
+    minSampleCount: 1,
+    minPassRate: 0.5,
+    requiredFixtureSuiteId: 'triage-suite',
+    requiredFixtureSuiteVersion: '1.0.0',
+    requiredVerificationRegimeVersion: 'deterministic-1',
     ...overrides,
   };
 }
