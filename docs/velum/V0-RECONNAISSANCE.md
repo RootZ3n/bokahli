@@ -447,9 +447,10 @@ contract — not the implementation — is what Bokahli depends on.
    records velum-python as MIT, but the Rust crate's terms are unstated. Reusing
    its *contract vocabulary and fixtures* needs that settled; reusing its code
    certainly does.
-4. **velum-python 0.3.0 was not located** under this account. It is referenced by
-   A32 provenance as `/pehverse/repos/ecosystem/hlampko/velum-python`. Only its
-   recorded conformance is available, and it fails 15 of 38.
+4. **velum-python 0.3.0 was not located** under this account. A32's provenance record
+   names it by package identity (`velum-ai` 0.3.0, MIT) and by a filesystem path
+   on a machine this account does not have. Only its recorded conformance is
+   available, and it fails 15 of 38.
 5. **Tool-manipulation coverage is one pattern** (`tool_output_says`). Bokahli
    has no tool-use surface today, so this blocks nothing now and would need real
    work before it does.
