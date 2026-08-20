@@ -85,10 +85,38 @@ function startBackend({ identity = {}, port = 0 } = {}) {
   });
 }
 
+/**
+ * A gate that qualifies nothing, which is the deployed state: no evidence
+ * imported, no policy configured. These tests are about runtime health, and the
+ * qualification answer must stay constant across every one of them so a health
+ * failure can never be mistaken for a fitness failure.
+ */
+const DENY_ALL_GATE = {
+  decide: (_artifact, taskClass) => ({
+    qualified: false,
+    reason: 'NO_POLICY_CONFIGURED',
+    taskClass: taskClass ?? '(unspecified)',
+    key: null,
+    shortfalls: [],
+    evidenceHash: null,
+    evidenceGeneratedAt: null,
+    authority: 'none',
+    detail: 'no policy configured in this test fixture',
+  }),
+  rankable: (artifact, taskClass) => ({
+    modelId: artifact.modelId,
+    decision: DENY_ALL_GATE.decide(artifact, taskClass),
+    passRate: null,
+    meanScore: null,
+    sampleCount: null,
+  }),
+};
+
 function ctxFor(port) {
   return {
     catalog: CATALOG,
     backend: new LlamaBackend(`http://127.0.0.1:${port}`, PINNED_BUILD, null, 2000),
+    qualification: DENY_ALL_GATE,
     queueDepth: 0,
     estimatedPromptTokens: 10,
     requestedMaxTokens: 64,
@@ -221,6 +249,7 @@ test('a backend that accepts connections but never answers fails terminally, not
   const ctx = {
     catalog: CATALOG,
     backend: new LlamaBackend(`http://127.0.0.1:${black.address().port}`, PINNED_BUILD, null, 750),
+    qualification: DENY_ALL_GATE,
     queueDepth: 0,
     estimatedPromptTokens: 10,
     requestedMaxTokens: 64,

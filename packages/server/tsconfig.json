@@ -1,6 +1,27 @@
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "rootDir": "./src", "outDir": "./dist" },
-  "include": ["src/**/*.ts"],
-  "references": [{ "path": "../contracts" }, { "path": "../catalog" }, { "path": "../runtime" }]
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./dist"
+  },
+  "include": [
+    "src/**/*.ts"
+  ],
+  "references": [
+    {
+      "path": "../contracts"
+    },
+    {
+      "path": "../catalog"
+    },
+    {
+      "path": "../qualification"
+    },
+    {
+      "path": "../tasks"
+    },
+    {
+      "path": "../runtime"
+    }
+  ]
 }

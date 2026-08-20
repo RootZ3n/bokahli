@@ -2,6 +2,7 @@ import { createServer, type Server } from 'node:http';
 import { Catalog } from '@bokahli/catalog';
 import { AdmissionQueue, findBackendPids, GpuMonitor, LlamaBackend } from '@bokahli/runtime';
 import { loadConfig, loadOrCreateToken } from './config.js';
+import { QualificationGate } from './qualification.js';
 import { createHandler, type AppDeps } from './http.js';
 import { Telemetry } from './telemetry.js';
 
@@ -90,7 +91,22 @@ async function main(): Promise<void> {
     totalSlots: attestation?.totalSlots ?? null,
   });
 
-  const deps: AppDeps = { config, token, catalog, backend, queue, gpu, telemetry, startedAt };
+  // Qualification starts empty and denies everything. Phase 2A ships the
+  // boundary, not a qualified model: no evidence has been imported, no policy
+  // has been configured, and the honest answer to "is this qualified" is no.
+  const qualification = QualificationGate.empty('llama.cpp', descriptor.pinnedBuild);
+  telemetry.log('info', 'qualification.loaded', {
+    authority: 'luak',
+    evidenceBundles: qualification.store.size,
+    hardwareProfileId: qualification.hardwareProfileId,
+    policiesConfigured: qualification.configuredTaskClasses.join(',') || '(none)',
+    note: 'No Luak evidence is imported and no policy is configured. Every ' +
+      'qualification-required request escalates.',
+  });
+
+  const deps: AppDeps = {
+    config, token, catalog, backend, qualification, queue, gpu, telemetry, startedAt,
+  };
   const handler = createHandler(deps);
   const servers: Server[] = [];
 

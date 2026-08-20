@@ -2,13 +2,17 @@
   "name": "bokahli",
   "version": "2.0.0-phase1",
   "private": true,
-  "description": "Bokahli v2 — local AI platform: catalog-driven routing, exact served identity, loopback inference execution.",
+  "description": "Bokahli v2 \u2014 local AI platform: catalog-driven routing, exact served identity, loopback inference execution.",
   "license": "MIT",
   "type": "module",
-  "engines": { "node": ">=22.18.0" },
+  "engines": {
+    "node": ">=22.18.0"
+  },
   "workspaces": [
     "packages/contracts",
     "packages/catalog",
+    "packages/qualification",
+    "packages/tasks",
     "packages/runtime",
     "packages/server"
   ],

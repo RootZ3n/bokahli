@@ -33,15 +33,18 @@ qualified route receive a typed `ESCALATE`, not a substitution.
 ## Layout
 
 ```
-packages/contracts   types: identity, routing, escalation, Luak import contract
-packages/catalog     artifact catalog, digest verification, public projection
-packages/runtime     loopback llama-server client, GPU lease monitor, admission queue
-packages/server      HTTP API, bearer auth, router, telemetry, chat UI
-catalog/             the artifact catalog
-config/              environment templates
-systemd/             user units
-scripts/             install, measure, verify, rollback, GPU preconditions
-docs/phase1/         evidence, measurements, lifecycle and reboot records
+packages/contracts      types: identity, routing, escalation, qualification, task classes
+packages/catalog        artifact catalog, digest verification, public projection
+packages/qualification  canonical hashing, evidence importer, policy, deterministic ranking
+packages/tasks          grounding validation for typed task classes
+packages/runtime        loopback llama-server client, GPU lease monitor, admission queue
+packages/server         HTTP API, bearer auth, router, telemetry, chat UI
+catalog/                the artifact catalog
+config/                 environment templates
+systemd/                user units
+scripts/                install, measure, verify, rollback, GPU preconditions
+docs/phase1/            evidence, measurements, lifecycle and reboot records
+docs/phase2a/           Luak authority boundary, qualification contract, task classes
 ```
 
 ## Security boundary
@@ -107,22 +110,54 @@ produce a typed refusal. There is no silent substitution path.
 requirements and the candidates considered. Bokahli holds no cloud-routing
 authority; where an escalated request goes next is the calling system's decision.
 
+## Qualification
+
+Luak issues qualification; Bokahli imports it and applies an operator policy to
+it. Bokahli never issues a verdict, never scores a model, and never converts
+absence of evidence into permission.
+
+Evidence is keyed to what was actually tested — model identity, **exact artifact
+digest**, quantisation, runtime name and pinned build, hardware profile, task
+class and its contract version, fixture suite and version, and the verification
+regime version. A miss on any element is a miss; there is no nearest match. The
+importer recomputes the canonical content hash, checks the evidence against this
+machine's artifact, runtime and hardware, and recomputes every aggregate from the
+attempts it claims to summarise, rejecting any bundle whose summary flatters its
+detail. It never repairs evidence and never calls Luak.
+
+Policy has **no default thresholds**, because Bokahli has no data on which to
+base one. An unconfigured policy accepts nothing. An unmeasured value never
+satisfies a requirement about it.
+
+The current state, plainly: no evidence is imported, no policy is configured, and
+the installed artifact is `INSTALLED_UNQUALIFIED`. Every request that demands
+qualification receives a typed `ESCALATE` /
+`MODEL_NOT_QUALIFIED_FOR_TASK`. `EXACT` does not change that — naming an artifact
+selects it, it does not confer fitness on it.
+
+Task classes defined: `test_log_triage`, `repo_reconnaissance`. Nothing is
+qualified for either. See `docs/phase2a/`.
+
 **`CAPACITY_UNAVAILABLE`** is distinct from `ESCALATE`: the local route is correct
 but cannot execute now — queue full, queue timeout, runtime down, or the GPU lease
 held by another consumer.
 
 ## Not implemented in Phase 1
 
-Repository mutation, shell tools, autonomous coding, multi-agent workflows, Luak
-integration beyond the versioned placeholder import contract, ikbi integration,
-model downloads, automatic artifact installation, cloud fallback, and any
-qualification claim.
+Repository mutation, shell tools, autonomous coding, multi-agent workflows, ikbi
+integration, model downloads, automatic artifact installation, cloud fallback,
+and any qualification claim.
+
+Phase 2A adds the qualification *boundary* — the import contract, the policy
+primitives, and two typed task classes. It adds no qualified model, no Luak
+fixtures for those task classes, and no threshold. `repo_reconnaissance` operates
+on a caller-supplied evidence packet; Bokahli gains no filesystem or shell access.
 
 ## Verify
 
 ```bash
 scripts/verify.sh     # 69 checks against a running deployment
-npm test              # 16 unit and lifecycle regression tests
+npm test              # 138 unit, lifecycle, qualification and task-contract tests
 ```
 
 ## Failure behaviour

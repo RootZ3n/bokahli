@@ -1,9 +1,23 @@
 {
   "files": [],
   "references": [
-    { "path": "./packages/contracts" },
-    { "path": "./packages/catalog" },
-    { "path": "./packages/runtime" },
-    { "path": "./packages/server" }
+    {
+      "path": "./packages/contracts"
+    },
+    {
+      "path": "./packages/catalog"
+    },
+    {
+      "path": "./packages/qualification"
+    },
+    {
+      "path": "./packages/tasks"
+    },
+    {
+      "path": "./packages/runtime"
+    },
+    {
+      "path": "./packages/server"
+    }
   ]
 }

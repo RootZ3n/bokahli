@@ -21,6 +21,7 @@ import {
 } from '@bokahli/contracts';
 import { authenticate, AUTH_COOKIE } from './auth.js';
 import type { BokahliConfig } from './config.js';
+import type { QualificationGate } from './qualification.js';
 import { route, type RouteContext } from './router.js';
 import { estimateTokens, Telemetry } from './telemetry.js';
 
@@ -29,6 +30,7 @@ export interface AppDeps {
   readonly token: string;
   readonly catalog: Catalog;
   readonly backend: LlamaBackend;
+  readonly qualification: QualificationGate;
   readonly queue: AdmissionQueue;
   readonly gpu: GpuMonitor;
   readonly telemetry: Telemetry;
@@ -284,6 +286,7 @@ async function handleChat(
     const ctx: RouteContext = {
       catalog: deps.catalog,
       backend: deps.backend,
+      qualification: deps.qualification,
       queueDepth: deps.queue.depth,
       estimatedPromptTokens: estimated,
       requestedMaxTokens: maxTokens,
@@ -796,7 +799,15 @@ function parseRouteSpec(r: unknown): { spec: RouteSpec } | { error: string } {
     if (typeof digest !== 'string') {
       return { error: 'EXACT requires artifactDigest; a route without a digest is not exact' };
     }
-    return { spec: { mode: 'EXACT', modelId, artifactDigest: digest } };
+    return {
+      spec: {
+        mode: 'EXACT',
+        modelId,
+        artifactDigest: digest,
+        ...(typeof o['taskClass'] === 'string' ? { taskClass: o['taskClass'] } : {}),
+        ...(o['requireQualified'] === true ? { requireQualified: true } : {}),
+      },
+    };
   }
   return { error: `unknown route mode: ${String(mode)}` };
 }

@@ -1,9 +1,11 @@
 import type { Catalog, InternalArtifact } from '@bokahli/catalog';
 import type { Attestation, LlamaBackend } from '@bokahli/runtime';
+import { rankCandidates, type RankableCandidate } from '@bokahli/qualification';
 import {
   isPathLike,
   isValidDigest,
   type CandidateAssessment,
+  type QualificationDecision,
   type CatalogEntry,
   type Escalation,
   type ProfileRequirements,
@@ -22,10 +24,70 @@ const AUTHORITY_NOTE =
 export interface RouteContext {
   readonly catalog: Catalog;
   readonly backend: LlamaBackend;
+  /**
+   * Evidence-backed qualification. Always present; an unconfigured deployment
+   * supplies an empty, deny-everything gate rather than omitting the check.
+   */
+  readonly qualification: QualificationGate;
   readonly queueDepth: number;
   /** Approximate prompt size, used only for context-capability checks. */
   readonly estimatedPromptTokens: number;
   readonly requestedMaxTokens: number;
+}
+
+/**
+ * The qualification question, as the router needs to ask it.
+ *
+ * Declared as an interface here rather than importing the concrete gate so the
+ * router can be exercised against a stub in tests without standing up an
+ * evidence store — and so the routing rules stay readable as rules.
+ */
+export interface QualificationGate {
+  decide(
+    artifact: { readonly modelId: string; readonly digest: string; readonly quantization: string },
+    taskClass: string | undefined,
+  ): QualificationDecision;
+  rankable(
+    artifact: { readonly modelId: string; readonly digest: string; readonly quantization: string },
+    taskClass: string | undefined,
+  ): RankableCandidate;
+}
+
+function identityOf(a: InternalArtifact): {
+  modelId: string;
+  digest: string;
+  quantization: string;
+} {
+  return { modelId: a.modelId, digest: a.digest, quantization: a.facts.quantization };
+}
+
+/**
+ * Pick the escalation reason that matches what the caller actually asked.
+ *
+ * A caller who named a task class is told about that task class; a caller who
+ * demanded qualification in the abstract is told nothing here is qualified at
+ * all. Collapsing the two would answer a question nobody asked.
+ */
+function qualificationEscalateReason(taskClass: string | undefined): Escalation['reason'] {
+  return taskClass ? 'MODEL_NOT_QUALIFIED_FOR_TASK' : 'NO_QUALIFIED_LOCAL_ROUTE';
+}
+
+/** A failed qualification decision, rendered as unmet requirements. */
+function qualificationUnmet(
+  decision: QualificationDecision,
+  taskClass: string | undefined,
+): UnmetRequirement[] {
+  const unmet: UnmetRequirement[] = [
+    {
+      requirement: `qualification.${taskClass ?? '(no task class named)'}`,
+      required: 'QUALIFIED, on imported Luak evidence, under the operator policy',
+      actual: decision.reason,
+    },
+  ];
+  for (const s of decision.shortfalls) {
+    unmet.push({ requirement: s.requirement, required: s.required, actual: s.actual });
+  }
+  return unmet;
 }
 
 export interface RouteRunResult {
@@ -46,7 +108,13 @@ export async function route(spec: RouteSpec, ctx: RouteContext): Promise<RouteRu
 async function decide(spec: RouteSpec, ctx: RouteContext): Promise<RouteOutcome> {
   switch (spec.mode) {
     case 'EXACT':
-      return decideExact(spec.modelId, spec.artifactDigest, ctx);
+      return decideExact(
+        spec.modelId,
+        spec.artifactDigest,
+        ctx,
+        spec.taskClass,
+        spec.requireQualified === true,
+      );
     case 'PROFILE':
       return decideProfile(spec.requirements, ctx);
     case 'AUTO':
@@ -66,6 +134,8 @@ async function decideExact(
   modelId: string,
   digest: string,
   ctx: RouteContext,
+  taskClass: string | undefined,
+  requireQualified: boolean,
 ): Promise<RouteOutcome> {
   // The public identity boundary. llama-server reports its model as a
   // filesystem path; Bokahli must never accept one as an identity, even if it
@@ -142,9 +212,28 @@ async function decideExact(
     );
   }
 
-  return routed('EXACT', artifact, attestation, [assess(artifact, true, [])],
+  // Identity and fitness are separate questions, and EXACT answers only the
+  // first. A caller who names an artifact *and* demands it be qualified is
+  // asking both; naming it does not satisfy the second.
+  const decision = ctx.qualification.decide(identityOf(artifact), taskClass);
+  if (requireQualified && !decision.qualified) {
+    return escalate(
+      'EXACT',
+      qualificationEscalateReason(taskClass),
+      `"${modelId}" is installed and its digest matches, but it is not qualified for ` +
+        `${taskClass ? `"${taskClass}"` : 'any task class'}: ${decision.detail} ` +
+        'EXACT selects an artifact; it does not confer fitness on one.',
+      qualificationUnmet(decision, taskClass),
+      [assess(artifact, false, qualificationUnmet(decision, taskClass), decision)],
+      false,
+    );
+  }
+
+  return routed('EXACT', artifact, attestation, [assess(artifact, true, [], decision)],
     `EXACT match on catalog identity and artifact digest, attested against the live runtime ` +
-    `(build ${attestation.build}).`);
+    `(build ${attestation.build}).` +
+    (taskClass ? ` Qualification for "${taskClass}": ${decision.reason}.` : ''),
+    taskClass ? decision : null);
 }
 
 // ---------------------------------------------------------------------------
@@ -160,12 +249,21 @@ async function decideProfile(
     return escalate('PROFILE', 'NO_LOCAL_CANDIDATES', 'no artifacts are installed.', [], []);
   }
 
+  const wantsQualification = req.requireQualified === true || req.requiredTaskClass !== undefined;
+  const taskClass = req.requiredTaskClass;
+
   const assessments: CandidateAssessment[] = [];
   const eligible: InternalArtifact[] = [];
+  const decisions = new Map<string, QualificationDecision>();
 
   for (const a of candidates) {
+    const decision = ctx.qualification.decide(identityOf(a), taskClass);
+    decisions.set(a.modelId, decision);
     const unmet = evaluateProfile(a, req, ctx);
-    assessments.push(assess(a, unmet.length === 0, unmet));
+    if (wantsQualification && !decision.qualified) {
+      unmet.push(...qualificationUnmet(decision, taskClass));
+    }
+    assessments.push(assess(a, unmet.length === 0, unmet, decision));
     if (unmet.length === 0) eligible.push(a);
   }
 
@@ -173,17 +271,26 @@ async function decideProfile(
     const allUnmet = assessments.flatMap((c) => c.unmet);
     const contextOnly =
       allUnmet.length > 0 && allUnmet.every((u) => u.requirement.startsWith('context'));
+    const qualificationBlocked =
+      wantsQualification && allUnmet.some((u) => u.requirement.startsWith('qualification'));
     return escalate(
       'PROFILE',
-      contextOnly ? 'CONTEXT_EXCEEDS_LOCAL_CAPABILITY' : 'REQUIREMENTS_UNMET',
-      'no installed artifact satisfies the caller-defined profile. Bokahli will ' +
-        'not substitute a model that fails the stated constraints.',
+      qualificationBlocked
+        ? qualificationEscalateReason(taskClass)
+        : contextOnly
+          ? 'CONTEXT_EXCEEDS_LOCAL_CAPABILITY'
+          : 'REQUIREMENTS_UNMET',
+      qualificationBlocked
+        ? 'no installed artifact holds qualification evidence that satisfies this profile. ' +
+          'A profile requirement that evidence does not support is refused, not approximated.'
+        : 'no installed artifact satisfies the caller-defined profile. Bokahli will ' +
+          'not substitute a model that fails the stated constraints.',
       allUnmet,
       assessments,
     );
   }
 
-  const chosen = eligible[0] as InternalArtifact;
+  const chosen = pickBest(eligible, ctx, taskClass, assessments);
   const attestation = await ctx.backend.attest(chosen);
   if (!attestation.reachable) {
     return runtimeUnhealthy('PROFILE', attestation.reasons, assessments);
@@ -199,8 +306,10 @@ async function decideProfile(
     );
   }
   return routed('PROFILE', chosen, attestation, assessments,
-    `Selected the single installed artifact that satisfies every stated requirement. ` +
-    `${assessments.length - eligible.length} candidate(s) were excluded for unmet constraints.`);
+    `Selected by deterministic rank over ${eligible.length} artifact(s) that satisfy every ` +
+    `stated requirement. ${assessments.length - eligible.length} candidate(s) were excluded ` +
+    'for unmet constraints.',
+    wantsQualification ? (decisions.get(chosen.modelId) ?? null) : null);
 }
 
 function evaluateProfile(
@@ -266,25 +375,9 @@ function evaluateProfile(
       actual: String(a.facts.parameterCount),
     });
   }
-  if (req.requireQualified === true && a.qualification.status !== 'QUALIFIED') {
-    unmet.push({
-      requirement: 'qualification.status',
-      required: 'QUALIFIED (issued by Luak)',
-      actual: a.qualification.status,
-    });
-  }
-  if (req.requiredTaskClass) {
-    if (!a.qualification.qualifiedTaskClasses.includes(req.requiredTaskClass)) {
-      unmet.push({
-        requirement: 'qualification.qualifiedTaskClasses',
-        required: `includes "${req.requiredTaskClass}"`,
-        actual:
-          a.qualification.qualifiedTaskClasses.length === 0
-            ? '[] (no Luak evidence installed)'
-            : `[${a.qualification.qualifiedTaskClasses.join(', ')}]`,
-      });
-    }
-  }
+  // Qualification is evaluated by the gate, against imported evidence and the
+  // operator's policy — not against the catalog's declared status. A catalog
+  // edit must never be able to confer fitness.
   if (req.maxQueueDepth != null && ctx.queueDepth > req.maxQueueDepth) {
     unmet.push({
       requirement: 'operational.maxQueueDepth',
@@ -311,6 +404,7 @@ async function decideAuto(
 
   const assessments: CandidateAssessment[] = [];
   const eligible: InternalArtifact[] = [];
+  const decisions = new Map<string, QualificationDecision>();
   const needed = ctx.estimatedPromptTokens + ctx.requestedMaxTokens;
 
   for (const a of candidates) {
@@ -325,24 +419,14 @@ async function decideAuto(
         actual: `~${needed}`,
       });
     }
-    // AUTO does not invent qualification. With no Luak evidence installed, a
-    // caller that demands a qualified route gets an escalation, not a guess.
-    if (requireQualified && a.qualification.status !== 'QUALIFIED') {
-      unmet.push({
-        requirement: 'qualification.status',
-        required: 'QUALIFIED (issued by Luak)',
-        actual: a.qualification.status,
-      });
+    // AUTO does not invent qualification. The gate answers from imported
+    // evidence and operator policy, and with neither present it answers no.
+    const decision = ctx.qualification.decide(identityOf(a), taskClass);
+    decisions.set(a.modelId, decision);
+    if (requireQualified && !decision.qualified) {
+      unmet.push(...qualificationUnmet(decision, taskClass));
     }
-    if (taskClass && requireQualified &&
-        !a.qualification.qualifiedTaskClasses.includes(taskClass)) {
-      unmet.push({
-        requirement: `qualification.taskClass.${taskClass}`,
-        required: 'qualified',
-        actual: 'no Luak evidence installed',
-      });
-    }
-    assessments.push(assess(a, unmet.length === 0, unmet));
+    assessments.push(assess(a, unmet.length === 0, unmet, decision));
     if (unmet.length === 0) eligible.push(a);
   }
 
@@ -353,23 +437,20 @@ async function decideAuto(
     return escalate(
       'AUTO',
       qualificationBlocked
-        ? 'NO_QUALIFIED_LOCAL_ROUTE'
+        ? qualificationEscalateReason(taskClass)
         : contextBlocked
           ? 'CONTEXT_EXCEEDS_LOCAL_CAPABILITY'
           : 'REQUIREMENTS_UNMET',
       qualificationBlocked
-        ? 'no installed artifact carries Luak qualification. Bokahli does not ' +
-          'assert fitness it has no evidence for.'
+        ? 'no installed artifact holds qualification evidence sufficient for this request ' +
+          'under the configured policy. Bokahli does not assert fitness it has no evidence for.'
         : 'no installed artifact can serve this request.',
       allUnmet,
       assessments,
     );
   }
 
-  // Phase 1: exactly one artifact is installed, so selection is deterministic.
-  // It still passes through the contract, and the rationale says plainly that
-  // this is a single-candidate selection rather than a ranked judgement.
-  const chosen = eligible[0] as InternalArtifact;
+  const chosen = pickBest(eligible, ctx, taskClass, assessments);
   const attestation = await ctx.backend.attest(chosen);
   if (!attestation.reachable) {
     return runtimeUnhealthy('AUTO', attestation.reasons, assessments);
@@ -385,14 +466,24 @@ async function decideAuto(
     );
   }
 
+  const chosenAssessment = assessments.find((c) => c.modelId === chosen.modelId);
+  const basis = chosenAssessment?.rankBasis ?? 'IDENTITY_TIEBREAK';
   const rationale =
     eligible.length === 1
-      ? `Deterministic selection: exactly one installed artifact is eligible. No ` +
-        `qualification evidence exists, so no fitness ranking was performed or implied.`
-      : `Deterministic selection over ${eligible.length} eligible artifacts in catalog order. ` +
-        `No qualification evidence exists, so no fitness ranking was performed.`;
+      ? 'Deterministic selection: exactly one installed artifact is eligible. ' +
+        (basis === 'IDENTITY_TIEBREAK'
+          ? 'No qualification evidence distinguished it, so no fitness ranking was performed or implied.'
+          : `Ranked on ${basis.toLowerCase().replace(/_/g, ' ')} from imported evidence.`)
+      : `Deterministic rank over ${eligible.length} eligible artifacts, decided by ${basis
+          .toLowerCase()
+          .replace(/_/g, ' ')}. ` +
+        (basis === 'IDENTITY_TIEBREAK'
+          ? 'No evidence distinguished these candidates: the order is by identity alone and ' +
+            'asserts nothing about fitness. It exists so catalog order cannot change the answer.'
+          : 'Ordering comes from imported measurements, never from a score Bokahli invented.');
 
-  return routed('AUTO', chosen, attestation, assessments, rationale);
+  return routed('AUTO', chosen, attestation, assessments, rationale,
+    requireQualified || taskClass ? (decisions.get(chosen.modelId) ?? null) : null);
 }
 
 // ---------------------------------------------------------------------------
@@ -403,14 +494,49 @@ function assess(
   a: InternalArtifact,
   eligible: boolean,
   unmet: readonly UnmetRequirement[],
+  decision: QualificationDecision | null = null,
 ): CandidateAssessment {
   return {
     modelId: a.modelId,
     digest: a.digest,
     eligible,
     unmet,
+    // The catalog's declared state and the evidence-backed decision are
+    // reported side by side on purpose. They answer different questions, and a
+    // reader who conflates them is exactly the reader this contract is for.
     qualification: a.qualification,
+    qualificationDecision: decision,
   };
+}
+
+/**
+ * Choose among eligible artifacts, deterministically.
+ *
+ * The ranking is computed over the whole eligible set and written back onto the
+ * assessments, so the recorded decision shows not just which artifact won but
+ * on what basis — and, critically, when the basis was nothing but identity
+ * order. That case is the honest one today, and it should read as such in the
+ * audit trail rather than as a judgement.
+ */
+function pickBest(
+  eligible: readonly InternalArtifact[],
+  ctx: RouteContext,
+  taskClass: string | undefined,
+  assessments: CandidateAssessment[],
+): InternalArtifact {
+  const ranked = rankCandidates(eligible.map((a) => ctx.qualification.rankable(identityOf(a), taskClass)));
+  for (const r of ranked) {
+    const i = assessments.findIndex((c) => c.modelId === r.modelId);
+    const existing = assessments[i];
+    if (i >= 0 && existing) {
+      assessments[i] = { ...existing, rank: r.rank, rankBasis: r.rankBasis };
+    }
+  }
+  const winner = ranked[0];
+  const chosen = winner ? eligible.find((a) => a.modelId === winner.modelId) : undefined;
+  // eligible is non-empty at every call site; the fallback keeps that a type
+  // fact rather than an assertion.
+  return chosen ?? (eligible[0] as InternalArtifact);
 }
 
 function servedIdentityOf(a: InternalArtifact, at: Attestation): ServedIdentity {
@@ -437,8 +563,16 @@ function routed(
   at: Attestation,
   considered: readonly CandidateAssessment[],
   rationale: string,
+  qualification: QualificationDecision | null = null,
 ): RouteDecision {
-  return { kind: 'ROUTED', mode, selected: servedIdentityOf(a, at), considered, rationale };
+  return {
+    kind: 'ROUTED',
+    mode,
+    selected: servedIdentityOf(a, at),
+    considered,
+    rationale,
+    qualification,
+  };
 }
 
 function escalate(
