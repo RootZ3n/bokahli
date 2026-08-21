@@ -19,6 +19,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   canaryPayloadHash,
+  canarySuiteIdentity,
   decodeByteLevel,
   decodeByteLevelBytes,
   isComparableTokenType,
@@ -254,7 +255,8 @@ const REF_DE = { ...REF_IN, method: 'gguf-token-table' };
 
 function auditSuite(o = {}) {
   const s = {
-    schemaVersion: 'bokahli.tokenizer-canary.v1', suiteId: 'audit.v1',
+    schemaVersion: 'bokahli.tokenizer-canary.v1', suiteId: '',
+    tokenizerFamily: 'gpt2', tokenizerPre: 'audit',
     artifactDigest: ART_DIGEST, tokenizerMetadataDigest: META_DIGEST, vocabSize: 1000,
     encodeSettings: { addSpecial: false, parseSpecial: true },
     encodeReference: REF_IN, decodeReference: REF_DE,
@@ -266,6 +268,9 @@ function auditSuite(o = {}) {
     payloadHash: '', generatedAt: '2026-08-20T11:00:00.000Z', coverage: [], note: '',
     ...o,
   };
+  // Derived, as the generator derives it. A literal id here would have stopped
+  // exercising the identity rule the moment one existed.
+  if (o.suiteId === undefined) s.suiteId = canarySuiteIdentity(s);
   if (o.payloadHash === undefined) s.payloadHash = canaryPayloadHash(s);
   return s;
 }
@@ -322,8 +327,18 @@ test('V3: reordering cases does not preserve identity', () => {
   const a = auditSuite();
   const b = structuredClone(a);
   b.encode.reverse();
+  // Both derived values move, and they move together. Order is part of the
+  // corpus, so a reordered corpus is a different corpus with a different name —
+  // recomputing only the hash leaves a suite whose id describes the order it
+  // used to have, and that is now a refusal rather than an inconsistency
+  // nothing looks at.
+  assert.ok(validateCanarySuite({ ...b, payloadHash: canaryPayloadHash(b) })
+    .some((e) => e.includes('is not the identity this suite')));
+
+  b.suiteId = canarySuiteIdentity(b);
   b.payloadHash = canaryPayloadHash(b);
   assert.notEqual(b.payloadHash, a.payloadHash, 'order is part of the payload, not canonicalised away');
+  assert.notEqual(b.suiteId, a.suiteId, 'and part of the identity');
   assert.deepEqual(validateCanarySuite(b), [], 'and a reordered suite is internally consistent');
 });
 

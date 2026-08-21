@@ -33,6 +33,7 @@
  * segmentation anywhere the corpus reaches is caught; one that changes it only
  * where the corpus does not reach is not.
  */
+import { createHash } from 'node:crypto';
 import type { ArtifactDigest } from './identity.js';
 
 export const TOKENIZER_CANARY_SCHEMA = 'bokahli.tokenizer-canary.v1';
@@ -125,8 +126,24 @@ export interface TokenizerDecodeCase {
 
 export interface TokenizerCanarySuite {
   readonly schemaVersion: typeof TOKENIZER_CANARY_SCHEMA;
-  /** Stable name, e.g. `qwen35-broad.v1`. Changes when the corpus changes. */
+  /**
+   * The suite's identity, **derived** from its own contents. Never authored.
+   *
+   * See `canarySuiteIdentity`. `validateCanarySuite` recomputes it and refuses
+   * a suite whose declared id is not the one its contents produce, so this
+   * field cannot say one thing while the suite is another.
+   */
   readonly suiteId: string;
+  /**
+   * `tokenizer.ggml.model` as read from the artifact, e.g. `gpt2`, `gemma4`.
+   *
+   * Read from the file whose digest Bokahli verified, never chosen. Null only
+   * when the artifact declares none, which is itself reported rather than
+   * filled in.
+   */
+  readonly tokenizerFamily: string | null;
+  /** `tokenizer.ggml.pre`, the pre-tokenizer variant. Null when absent. */
+  readonly tokenizerPre: string | null;
   /** The artifact these expectations describe. A suite is not portable. */
   readonly artifactDigest: ArtifactDigest;
   /** The tokenizer metadata digest at generation time. */
@@ -154,6 +171,80 @@ export interface TokenizerCanarySuite {
   /** Corpus dimensions, for a reader deciding whether coverage is adequate. */
   readonly coverage: readonly string[];
   readonly note: string;
+}
+
+/**
+ * The corpus's identity: what was asked, not what the answers were.
+ *
+ * Over case ids and inputs only, deliberately. The *expected* ids differ
+ * between two tokenizers by design, so hashing them would make every artifact's
+ * corpus look like a different corpus and destroy the one thing this component
+ * is for — saying that two suites asked the same questions.
+ */
+export function canaryCorpusDigest(encode: readonly TokenizerEncodeCase[]): string {
+  const payload = encode.map((c) => `${c.id}:${c.inputBase64}`).join('\n');
+  return createHash('sha256').update(payload).digest('hex');
+}
+
+/** Keep a family or pre-tokenizer name to characters an identifier may carry. */
+function slug(v: string | null): string {
+  if (v === null) return '';
+  const cleaned = v.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return cleaned.slice(0, 32);
+}
+
+/**
+ * A canary suite's identity, derived from the suite.
+ *
+ * ## Why this is not a constant
+ *
+ * It was one. `scripts/generate-tokenizer-canary.mjs` carried
+ * `const SUITE_ID = 'qwen35-broad.v1'` and stamped it on every suite it
+ * produced, so both Gemma artifacts shipped canaries announcing a Qwen
+ * tokenizer — in the catalog, in `/health/ready`, and inside every attestation
+ * a Gemma-served request produced. The bindings underneath were exact the whole
+ * time: artifact digest, tokenizer metadata digest and backend instance were
+ * all checked, and a Qwen suite could never have verified against a Gemma
+ * artifact. What was wrong was the *label*, which is the part a human reads,
+ * and a label that says Qwen over Gemma evidence is a false statement whether
+ * or not the machine is fooled by it.
+ *
+ * The fix is not a better constant. A name that can be typed can be typed
+ * wrongly, and the next artifact would have inherited whatever the last one
+ * said. So the id is computed from three facts the suite already carries and
+ * cannot misreport:
+ *
+ *   family    `tokenizer.ggml.model` (+ `.pre`) read out of the artifact whose
+ *             digest was verified before generation began. Never a marketing
+ *             name — `gpt2` and `gemma4` are what the files actually say.
+ *   corpus    a digest over the questions asked, so a changed corpus is a
+ *             changed identity, which is what the old `.v1` suffix was
+ *             gesturing at.
+ *   tokenizer a prefix of the tokenizer metadata digest, so a suite generated
+ *             against different metadata cannot wear this identity.
+ *
+ * `validateCanarySuite` recomputes it, which turns the label into a checked
+ * claim rather than a decoration. This does not replace any binding: the exact
+ * digest comparisons in `verifyTokenizerCanary` are untouched and still decide
+ * whether a canary applies.
+ *
+ * Both Qwen quantisations share tokenizer metadata and so share a suite id.
+ * That is correct and not a collision — it is the same corpus put to the same
+ * tokenizer. Which *artifact* a suite belongs to is `artifactDigest`, checked
+ * separately and exactly.
+ */
+export function canarySuiteIdentity(parts: {
+  readonly tokenizerFamily: string | null;
+  readonly tokenizerPre: string | null;
+  readonly tokenizerMetadataDigest: string;
+  readonly encode: readonly TokenizerEncodeCase[];
+}): string {
+  const fam = slug(parts.tokenizerFamily) || 'unknown-family';
+  const pre = slug(parts.tokenizerPre);
+  const family = pre === '' ? fam : `${fam}-${pre}`;
+  const corpus = canaryCorpusDigest(parts.encode).slice(0, 8);
+  const tok = parts.tokenizerMetadataDigest.replace(/^sha256:/, '').slice(0, 12);
+  return `tokcanary.v1.${family}.c${corpus}.t${tok}`;
 }
 
 /**

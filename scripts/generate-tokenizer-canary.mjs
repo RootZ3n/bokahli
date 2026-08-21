@@ -39,6 +39,7 @@ import { promisify } from 'node:util';
 import { Catalog } from '../packages/catalog/dist/index.js';
 import {
   canaryPayloadHash,
+  canarySuiteIdentity,
   decodeByteLevelBytes,
   isSelfContainedUtf8,
   readGgufTokenizerMetadata,
@@ -62,7 +63,24 @@ const TOKENIZER_BIN =
  */
 const GENERATOR_OBJECTS = ['libllama.so', 'libggml.so', 'libggml-base.so', 'libggml-cpu.so'];
 
-const SUITE_ID = 'qwen35-broad.v1';
+/**
+ * There is no SUITE_ID constant any more, and that is the point.
+ *
+ * There used to be: `const SUITE_ID = 'qwen35-broad.v1'`, stamped onto every
+ * suite this script produced. Both Gemma artifacts therefore shipped canaries
+ * announcing a Qwen tokenizer, and that label travelled into the catalog, into
+ * `/health/ready` and into every attestation a Gemma-served request produced.
+ *
+ * The bindings underneath were never wrong — artifact digest, tokenizer
+ * metadata digest and backend instance were all checked exactly, and a Qwen
+ * suite could not have verified against a Gemma artifact. What was wrong was
+ * the name, which is the part a person reads. Replacing one hand-written name
+ * with a better hand-written name would have left the same defect one artifact
+ * away, so the id is derived instead: see `canarySuiteIdentity`, which computes
+ * it from the tokenizer family read out of the artifact, a digest over the
+ * corpus, and a prefix of the tokenizer metadata digest. `validateCanarySuite`
+ * recomputes and refuses a mismatch, so an untruthful label is now a refusal.
+ */
 
 /**
  * The corpus.
@@ -264,6 +282,20 @@ async function reverify(path, artifact, tokens, tokenTypes, meta) {
   if (suite.tokenizerMetadataDigest !== meta.metadataDigest) {
     errs.push('tokenizer metadata digest drifted from the artifact');
   }
+  // Re-read from the file rather than trusting the suite's own copy. A family
+  // name compared only with itself is the defect this whole change is about.
+  if ((suite.tokenizerFamily ?? null) !== (meta.family ?? null)) {
+    errs.push(
+      `suite names tokenizer family ${JSON.stringify(suite.tokenizerFamily)} but the ` +
+        `artifact declares ${JSON.stringify(meta.family)}`,
+    );
+  }
+  if ((suite.tokenizerPre ?? null) !== (meta.pretokenizer ?? null)) {
+    errs.push(
+      `suite names pre-tokenizer ${JSON.stringify(suite.tokenizerPre)} but the ` +
+        `artifact declares ${JSON.stringify(meta.pretokenizer)}`,
+    );
+  }
   if (suite.vocabSize !== tokens.length) errs.push('vocabSize drifted from the artifact');
   if (suite.encodeSettings.addSpecial !== false || suite.encodeSettings.parseSpecial !== true) {
     errs.push('encode settings are not the ones the reference was invoked with');
@@ -395,7 +427,12 @@ async function main() {
 
   const suite = {
     schemaVersion: 'bokahli.tokenizer-canary.v1',
-    suiteId: SUITE_ID,
+    // Filled in below, once the encode corpus exists: the id is derived from
+    // the suite, so it cannot be written before the suite is.
+    suiteId: '',
+    // Read from the artifact whose digest was verified above, never chosen.
+    tokenizerFamily: meta.family,
+    tokenizerPre: meta.pretokenizer,
     artifactDigest: artifact.digest,
     tokenizerMetadataDigest: meta.metadataDigest,
     vocabSize: tokens.length,
@@ -432,7 +469,13 @@ async function main() {
       `${skippedNonUtf8} sampled vocabulary entries were excluded: UNUSED padding, which the ` +
       'runtime renders as the empty string, and byte fragments that are not valid UTF-8 alone.',
   };
+  suite.suiteId = canarySuiteIdentity(suite);
   suite.payloadHash = canaryPayloadHash(suite);
+  process.stderr.write(
+    `identity: ${suite.suiteId}\n` +
+      `  tokenizer family: ${meta.family ?? '(none declared)'}` +
+      `${meta.pretokenizer === null ? '' : ` / pre ${meta.pretokenizer}`}\n`,
+  );
 
   await writeFile(out, `${JSON.stringify(suite, null, 2)}\n`, 'utf8');
 

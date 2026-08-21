@@ -17,6 +17,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   canaryPayloadHash,
+  canarySuiteIdentity,
   decodeByteLevel,
   decodeByteLevelBytes,
   isSelfContainedUtf8,
@@ -70,7 +71,9 @@ const INDEPENDENT_DECODE_REF = {
 function suite(o = {}) {
   const s = {
     schemaVersion: 'bokahli.tokenizer-canary.v1',
-    suiteId: 'test-corpus.v1',
+    suiteId: '',
+    tokenizerFamily: 'gpt2',
+    tokenizerPre: 'testpre',
     artifactDigest: ARTIFACT,
     tokenizerMetadataDigest: META,
     vocabSize: 1000,
@@ -85,6 +88,11 @@ function suite(o = {}) {
     note: 'test corpus',
     ...o,
   };
+  // Derived rather than written, exactly as the generator does it. A test that
+  // hard-coded an id would stop exercising the identity rule the moment that
+  // rule changed, which is how `qwen35-broad.v1` came to be stamped on a Gemma
+  // canary in the first place.
+  if (o.suiteId === undefined) s.suiteId = canarySuiteIdentity(s);
   // Regenerated rather than copied, so a suite built by a test is as internally
   // consistent as one built by the generator — otherwise every test would fail
   // on the hash and none of them would be testing what it claims to.
@@ -532,7 +540,11 @@ async function e2eProvider(path, digest, { suiteOverrides = {}, encodeOverrides 
   const meta = await readGgufTokenizerMetadata(path);
   const s = {
     schemaVersion: 'bokahli.tokenizer-canary.v1',
-    suiteId: 'e2e.v1',
+    suiteId: '',
+    // Read out of the synthetic artifact, the same way the generator reads it
+    // out of a real one.
+    tokenizerFamily: meta.family,
+    tokenizerPre: meta.pretokenizer,
     artifactDigest: digest,
     tokenizerMetadataDigest: meta.metadataDigest,
     vocabSize: VOCAB.length,
@@ -547,6 +559,7 @@ async function e2eProvider(path, digest, { suiteOverrides = {}, encodeOverrides 
     note: 'e2e',
     ...suiteOverrides,
   };
+  if (suiteOverrides.suiteId === undefined) s.suiteId = canarySuiteIdentity(s);
   if (suiteOverrides.payloadHash === undefined) s.payloadHash = canaryPayloadHash(s);
 
   const artifact = {
@@ -579,7 +592,10 @@ test('D1: an intact runtime, end to end, reaches runtime_tokenizer', async (t) =
   assert.equal(f.tokenizer.decodeCanaryVerified, true);
   assert.equal(f.tokenizer.encodeCanaryVerified, true);
   assert.equal(f.tokenizer.pretokenizerVerified, true);
-  assert.equal(f.tokenizer.canarySuiteId, 'e2e.v1');
+  // The reported id names this artifact's own tokenizer, derived from it. A
+  // literal here would assert nothing about truthfulness, which is exactly how
+  // every Gemma canary came to announce `qwen35-broad.v1`.
+  assert.match(f.tokenizer.canarySuiteId, /^tokcanary\.v1\.gpt2-qwen35\.c[0-9a-f]{8}\.t[0-9a-f]{12}$/);
   assert.equal(f.tokenizer.verifiedBackendInstanceId, f.backendInstance.instanceId);
   assert.ok(f.tokenizer.verifiedAt);
   assert.equal(f.tokenizer.tokenizedBy, 'runtime');

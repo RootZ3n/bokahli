@@ -1,6 +1,8 @@
 {
   "schemaVersion": "bokahli.tokenizer-canary.v1",
-  "suiteId": "qwen35-broad.v1",
+  "suiteId": "tokcanary.v1.gemma4.c9a67aacc.tfa01ae7742a8",
+  "tokenizerFamily": "gemma4",
+  "tokenizerPre": null,
   "artifactDigest": "sha256:a07f72221e8e3f77455ab0d7f7652d01a9f63c262b954aa6932a53275a0e895a",
   "tokenizerMetadataDigest": "sha256:fa01ae7742a8a5c1b6c67d1c2985afbfa92f9ee6c7e218f4735c6490404e412c",
   "vocabSize": 262144,
@@ -953,8 +955,8 @@
       "expectedBytesBase64": "PHVudXNlZDYyMjY+"
     }
   ],
-  "payloadHash": "sha256:61c193f8b16b75470d9cd8e5df4a8da84b855fd59e58b896c29951faf0d27f77",
-  "generatedAt": "2026-08-21T02:47:09.522Z",
+  "payloadHash": "sha256:d54cf531607e5e99d6aa0a513a4628791d9543be40dc513ccef0d637ef580306",
+  "generatedAt": "2026-08-21T11:46:42.904Z",
   "coverage": [
     "ascii words and punctuation",
     "leading/trailing/repeated whitespace",

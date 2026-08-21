@@ -30,11 +30,17 @@ import {
 } from '@bokahli/velum/base64';
 import {
   canaryReferenceIsIndependent,
+  canarySuiteIdentity,
   TOKENIZER_CANARY_SCHEMA,
   type CanaryReference,
   type TokenizerCanaryResult,
   type TokenizerCanarySuite,
 } from '@bokahli/contracts';
+
+// Re-exported so the generator and the loader reach one implementation of the
+// identity rule. Two would eventually disagree, and the day they did, one of
+// them would be the one deciding whether a canary's label is true.
+export { canarySuiteIdentity, canaryCorpusDigest } from '@bokahli/contracts';
 
 export const CANARY_COVERAGE_NOTE =
   'Behavioural canary coverage over a fixed corpus, in both directions. It ' +
@@ -90,6 +96,11 @@ export function canonicalCanaryPayload(suite: TokenizerCanarySuite): string {
   return [
     `schema=${suite.schemaVersion}`,
     `suiteId=${suite.suiteId}`,
+    // The family claim is inside the hash, not beside it. A suite whose label
+    // was corrected without regenerating its expectations must not still
+    // validate: the point of the correction is that the two agree.
+    `tokenizerFamily=${suite.tokenizerFamily ?? ''}`,
+    `tokenizerPre=${suite.tokenizerPre ?? ''}`,
     `artifactDigest=${suite.artifactDigest}`,
     `tokenizerMetadataDigest=${suite.tokenizerMetadataDigest}`,
     `vocabSize=${String(suite.vocabSize)}`,
@@ -134,7 +145,8 @@ export function validateCanarySuite(suite: unknown): readonly string[] {
   // than ignored, so adding a field to this contract forces adding it to the
   // preimage.
   const SUITE_KEYS = new Set([
-    'schemaVersion', 'suiteId', 'artifactDigest', 'tokenizerMetadataDigest', 'vocabSize',
+    'schemaVersion', 'suiteId', 'tokenizerFamily', 'tokenizerPre',
+    'artifactDigest', 'tokenizerMetadataDigest', 'vocabSize',
     'encodeSettings', 'encodeReference', 'decodeReference', 'encode', 'decode',
     'payloadHash', 'generatedAt', 'coverage', 'note',
   ]);
@@ -213,6 +225,36 @@ export function validateCanarySuite(suite: unknown): readonly string[] {
   for (const c of s.decode) {
     if (!Number.isSafeInteger(c.tokenId) || c.tokenId < 0 || c.tokenId >= s.vocabSize) {
       errs.push(`decode case ${c.id} names ${String(c.tokenId)}, not an id in this vocabulary`);
+    }
+  }
+
+  // The label must be the one the contents produce.
+  //
+  // Before this check the suite id was authored, and every artifact in the
+  // catalog — Gemma included — shipped a canary announcing `qwen35-broad.v1`.
+  // Nothing underneath was wrong: the digest bindings were exact and a Qwen
+  // suite could never have verified against a Gemma artifact. The *label* was
+  // false, and a label is what a person reads out of an attestation. Deriving
+  // it makes it a claim that can be checked; checking it here makes an
+  // untruthful one a refusal rather than a display bug.
+  if (
+    (s.tokenizerFamily !== null && typeof s.tokenizerFamily !== 'string') ||
+    (s.tokenizerPre !== null && typeof s.tokenizerPre !== 'string')
+  ) {
+    errs.push('tokenizerFamily and tokenizerPre must each be a string or null');
+  } else if (typeof s.tokenizerMetadataDigest === 'string') {
+    const derived = canarySuiteIdentity({
+      tokenizerFamily: s.tokenizerFamily,
+      tokenizerPre: s.tokenizerPre,
+      tokenizerMetadataDigest: s.tokenizerMetadataDigest,
+      encode: s.encode,
+    });
+    if (derived !== s.suiteId) {
+      errs.push(
+        `suiteId "${s.suiteId}" is not the identity this suite's contents produce ` +
+          `("${derived}"): a canary may not name a tokenizer family, corpus or ` +
+          'tokenizer metadata other than its own',
+      );
     }
   }
 
