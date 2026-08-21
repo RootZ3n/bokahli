@@ -225,6 +225,39 @@ resolved only by constrained execution.** All three artifacts that reached a
 wide enough sample show it unconstrained on at least one fixture; all three are
 100% valid under the same schemas with a grammar attached.
 
+### The constrained regime enforces field names, not just syntax
+
+The clearest production argument the campaign produced, and it is not about JSON
+validity at all.
+
+On the reconnaissance suite, `qwen3.5-35b-a3b.iq3-xxs` unconstrained returns 27
+of 27 syntactically valid documents and **0 parsed citations**. Constrained, the
+same artifact on the same fixtures returns 42 citations, 22 of them grounded.
+
+The reason is the shape, not the syntax. The prompt declares
+`citations (array of {startLine,endLine,quote})`. Unconstrained, the model emits:
+
+    {"line": 1, "text": "import { jwtVerify } from 'jose';"}
+
+Valid JSON. Wrong field names. Luak's parser requires a finite `startLine`, so
+every one of those citations is dropped and the attempt scores as having cited
+nothing. Under the schema the grammar cannot produce anything but
+`{startLine, endLine, quote}`, and the citations appear.
+
+Two consequences worth separating:
+
+- **For a client.** Unconstrained output from this artifact is not merely
+  occasionally unparseable; it is *routinely unusable* in a way that parses
+  cleanly. A caller resolving citations against its own evidence would get an
+  empty set and no error. That is a stronger reason to declare the constrained
+  regime in production than the `\u{3e}` defect is.
+- **For the harness.** "Cited nothing" and "cited with the wrong field names"
+  are scored identically and reported identically, which is a reporting weakness
+  rather than a scoring error — the attempt is correctly penalised, but the
+  reason is opaque until someone reads the completion. Not changed during the
+  campaign, for the same reason the precondition timeout was not: the two
+  survivors had to run the same harness.
+
 ### The control is the worst of the four at citation grounding
 
 Offset between the line a citation names and the line its quote is actually on,
