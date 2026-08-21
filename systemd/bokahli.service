@@ -29,7 +29,18 @@ StartLimitBurst=5
 
 [Service]
 Type=simple
-EnvironmentFile=%h/.config/bokahli/shared.env
+# shared.env is deliberately NOT loaded here any more.
+#
+# Its only variable is BOKAHLI_RUNTIME_API_KEY, and the server now reads that
+# key from ~/.config/bokahli/runtime-api-key (mode 0600) at startup — the same
+# file bokahli-runtime.service passes with --api-key-file. Loading it here put
+# the secret in this process's environ for no reason: /proc/<pid>/environ is
+# mode 400 so it was never a disclosure, but a secret a process does not need
+# to hold is one it should not hold, and the deployment contract requires the
+# runtime key to be absent from both arguments and environment.
+#
+# The server still falls back to the environment when the file is unreadable,
+# so an un-updated deployment keeps working — and logs a warning saying so.
 EnvironmentFile=%h/.config/bokahli/bokahli.env
 WorkingDirectory=/home/zen/repos/bokahli
 ExecStart=/home/zen/.local/bin/node /home/zen/repos/bokahli/packages/server/dist/main.js

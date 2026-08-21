@@ -2,6 +2,9 @@ import { createServer, type Server } from 'node:http';
 import { ScanCapacity } from './velum-capacity.js';
 import { ScanPool } from './scan-pool.js';
 import { readFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { Catalog } from '@bokahli/catalog';
 import type { TokenizerCanarySuite } from '@bokahli/contracts';
 import {
@@ -62,11 +65,45 @@ async function main(): Promise<void> {
 
   const backendName = artifacts[0]?.backend ?? 'primary';
   const descriptor = catalog.backend(backendName);
-  const runtimeKey = process.env['BOKAHLI_RUNTIME_API_KEY'] ?? null;
+  // The backend key comes from a 0600 file, not from this process's environment.
+  //
+  // `bokahli-runtime.service` stopped taking it by environment when it gained
+  // `--api-key-file`, with the reasoning that a secret a process never needs is
+  // a secret it should never hold. This side kept loading `shared.env` because
+  // it is the backend's *client* and does need the value — but "needs the value"
+  // and "needs it in `environ`" are different claims. `/proc/<pid>/environ` is
+  // mode 400, so this was never a disclosure; it was a secret sitting somewhere
+  // it did not have to sit, and a campaign requirement that the runtime API key
+  // be absent from arguments *and* environment is the right requirement.
+  //
+  // The environment is still read, and still works, so a deployment that has not
+  // had its unit updated keeps running — but it says so, because a fallback
+  // nobody is told about is a fallback nobody removes.
+  const runtimeKey = ((): string | null => {
+    const file = process.env['BOKAHLI_RUNTIME_API_KEY_FILE']
+      ?? join(homedir(), '.config/bokahli/runtime-api-key');
+    try {
+      const v = readFileSync(file, 'utf8').trim();
+      if (v.length > 0) return v;
+    } catch {
+      // Absent or unreadable: fall through to the environment.
+    }
+    const fromEnv = process.env['BOKAHLI_RUNTIME_API_KEY'] ?? null;
+    if (fromEnv !== null && fromEnv.length > 0) {
+      telemetry.log('warn', 'runtime.apiKeyFromEnvironment', {
+        note: `the backend key was read from BOKAHLI_RUNTIME_API_KEY because ${file} ` +
+          'could not be read. It is now in this process\'s environ, which the ' +
+          'deployment contract says it should not be. Provision the key file and ' +
+          'drop shared.env from bokahli.service.',
+      });
+      return fromEnv;
+    }
+    return null;
+  })();
   if (!runtimeKey) {
     telemetry.log('warn', 'runtime.noApiKey', {
-      note: 'BOKAHLI_RUNTIME_API_KEY is unset; the loopback backend is reachable ' +
-        'without a key by any local process or browser page.',
+      note: 'no backend key from file or environment; the loopback backend is ' +
+        'reachable without a key by any local process or browser page.',
     });
   }
   const backend = new LlamaBackend(descriptor.baseUrl, descriptor.pinnedBuild, runtimeKey);
