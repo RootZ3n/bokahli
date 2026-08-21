@@ -417,6 +417,40 @@ export interface RequestTelemetry {
    * provenance, or changes whether an artifact is qualified.
    */
   readonly velum: VelumTelemetry | null;
+  /**
+   * Which system-level evidence policy framed this request.
+   *
+   * Null when no evidence was supplied, so there was no policy to apply.
+   *
+   * Reported because a prompt that shapes behaviour is part of a deployment's
+   * identity. Detection and obedience are different properties, and Velum
+   * telemetry only ever described the first: the corrected transport fenced and
+   * scanned every packet of this campaign's adversarial fixtures and the models
+   * followed the embedded instructions anyway. A result gathered under one
+   * policy version is not a result about another, and a consumer that pools
+   * them is measuring two deployments as one.
+   */
+  readonly evidencePolicy: EvidencePolicyFacts | null;
+}
+
+/**
+ * The evidence policy in force for one request.
+ *
+ * `applied` and `messageIndex` are separate on purpose. Chat templates differ
+ * on how they treat a system message that is not the first: Gemma 4's canonical
+ * template lifts `messages[0]` into its system turn and renders any later
+ * system message inside the ordinary turn loop. "The policy was included" and
+ * "the policy was included where the template will honour it" are therefore
+ * different claims, and only the second is worth relying on.
+ */
+export interface EvidencePolicyFacts {
+  readonly version: string;
+  /** sha256 of the exact policy text, so a claim about a version is checkable. */
+  readonly digest: string;
+  readonly applied: boolean;
+  readonly messageIndex: number | null;
+  /** Whether the caller's own system text was folded into that same message. */
+  readonly composedWithCallerSystem: boolean;
 }
 
 export interface GpuSnapshot {

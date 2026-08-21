@@ -69,6 +69,7 @@ import {
   type Detection, type NeutralizedContent, type VelumFindingRecord,
 } from '@bokahli/velum';
 import type { AuthSource } from './auth.js';
+import { composeMessages, type EvidencePolicyIdentity } from './evidence-policy.js';
 
 /** How the boundary behaves. `enforce` is the default; `off` is still recorded. */
 export type TrustMode = 'off' | 'audit' | 'enforce';
@@ -115,10 +116,12 @@ export interface AdmittedEvidence {
 export type AdmitOutcome =
   | {
     readonly kind: 'ADMITTED';
-    /** The messages to send onward, with evidence fenced. */
+    /** The messages to send onward: the evidence policy, the caller's turns, the fenced evidence. */
     readonly messages: readonly BokahliChatMessage[];
     readonly evidence: readonly AdmittedEvidence[];
     readonly telemetry: VelumTelemetry;
+    /** Which policy version framed this request, and where it sat. */
+    readonly evidencePolicy: EvidencePolicyIdentity;
   }
   | {
     readonly kind: 'BLOCKED';
@@ -293,10 +296,34 @@ export function admitRequest(input: AdmitRequestInput): AdmitOutcome {
   // `system` message: elevating untrusted bytes into the channel the model
   // treats as its own operating instructions is the exact move the fence exists
   // to prevent.
-  const messages: BokahliChatMessage[] = [...input.messages];
+  //
+  // And ahead of all of it, Bokahli's own standing statement about what
+  // authority evidence has.
+  //
+  // Until this existed, the fence header was the only place in the entire
+  // request that said evidence is data — three lines, *inside* the untrusted
+  // region, repeated per packet, competing with a document free to spend a
+  // hundred lines arguing otherwise. Bokahli's system message was the empty
+  // string. That is why the corrected transport could fence and scan every
+  // packet and still watch Q2_K and Gemma 26B follow all three embedded
+  // instructions: nothing had told them not to, in the one channel evidence
+  // cannot reach.
+  //
+  // Attached whenever evidence is present, before any scan verdict is
+  // consulted and whatever that verdict turns out to be. A boundary that
+  // switched on when the detector fired would be exactly as good as the
+  // detector, and the detector is a filter.
+  const composed = composeMessages(input.messages, admitted.length > 0);
+  const messages: BokahliChatMessage[] = composed.messages;
   for (const e of admitted) messages.push({ role: 'user', content: e.rendered.rendered });
 
-  return { kind: 'ADMITTED', messages, evidence: admitted, telemetry };
+  return {
+    kind: 'ADMITTED',
+    messages,
+    evidence: admitted,
+    telemetry,
+    evidencePolicy: composed.identity,
+  };
 }
 
 function packetFor(

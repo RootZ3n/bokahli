@@ -24,6 +24,10 @@
     "./scan-protocol": {
       "types": "./dist/scan-protocol.d.ts",
       "default": "./dist/scan-protocol.js"
+    },
+    "./evidence-policy": {
+      "types": "./dist/evidence-policy.d.ts",
+      "default": "./dist/evidence-policy.js"
     }
   },
   "dependencies": {

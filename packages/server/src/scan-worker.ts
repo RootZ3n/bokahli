@@ -106,7 +106,13 @@ port.on('message', (job: ScanJob) => {
     };
     const response: ScanResponse = outcome.kind === 'BLOCKED'
       ? { type: 'blocked', ...bound, messages: [], telemetry, reason: outcome.reason }
-      : { type: 'admitted', ...bound, messages: outcome.messages, telemetry, reason: null };
+      : {
+        type: 'admitted', ...bound,
+        messages: outcome.messages,
+        telemetry,
+        evidencePolicy: outcome.evidencePolicy,
+        reason: null,
+      };
     port.postMessage(response);
   } catch (err) {
     const e = err as Error;

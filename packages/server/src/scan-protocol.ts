@@ -22,6 +22,7 @@
 import type { BokahliChatMessage, VelumPacketReport, VelumTelemetry } from '@bokahli/contracts';
 import type { AuthSource } from './auth.js';
 import type { EvidenceItem, TrustMode } from './trust.js';
+import type { EvidencePolicyIdentity } from './evidence-policy.js';
 
 /** Bokahli's trust zone for a job. Carried so a result can be bound to it. */
 export type ScanZone = 'request' | 'model-output';
@@ -76,6 +77,16 @@ export type ScanResponse =
     readonly type: 'admitted';
     readonly messages: readonly BokahliChatMessage[];
     readonly telemetry: VelumTelemetry;
+    /**
+     * Which evidence policy framed the messages above.
+     *
+     * Crosses the boundary with them rather than being restated on the main
+     * thread. The worker is what built the message list, so it is the only
+     * thing that knows whether the policy went in and where; a main-thread copy
+     * of that fact would be a second source for it, and two sources for one
+     * fact eventually disagree.
+     */
+    readonly evidencePolicy: EvidencePolicyIdentity;
     readonly reason: null;
   })
   | (Bound & {

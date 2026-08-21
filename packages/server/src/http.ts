@@ -22,6 +22,7 @@ import {
   type SamplerConfig,
   type ServedIdentity,
   type VelumTelemetry,
+  type EvidencePolicyFacts,
 } from '@bokahli/contracts';
 import { authenticate, AUTH_COOKIE, type AuthSource } from './auth.js';
 import { engineIdentity, type EvidenceItem, type TrustMode } from './trust.js';
@@ -416,6 +417,7 @@ async function handleChat(
   }
   const messages = admitted.messages;
   const velumTelemetry = admitted.telemetry;
+  const evidencePolicy = admitted.evidencePolicy;
 
   // A host that cannot convert bytes reliably cannot produce evidence about
   // anything. Refused here rather than served with quietly degraded token
@@ -640,7 +642,7 @@ async function handleChat(
         requestId, receivedAt, admittedAt, instanceAtAdmission,
         t0, admission, spec, outcome, served, artifact,
         messages, maxTokens, temperature, topP, topK, seed, requestedSampler,
-        routeMs: decision.routeMs, velum: velumTelemetry,
+        routeMs: decision.routeMs, velum: velumTelemetry, evidencePolicy,
         gpu: gpuState.snapshot, dialect, signal: ac.signal,
       });
     } else {
@@ -648,7 +650,7 @@ async function handleChat(
         requestId, receivedAt, admittedAt, instanceAtAdmission,
         t0, admission, spec, outcome, served, artifact,
         messages, maxTokens, temperature, topP, topK, seed, requestedSampler,
-        routeMs: decision.routeMs, velum: velumTelemetry,
+        routeMs: decision.routeMs, velum: velumTelemetry, evidencePolicy,
         gpu: gpuState.snapshot, dialect, signal: ac.signal,
       });
     }
@@ -672,6 +674,14 @@ interface ExecArgs {
    * whose answer could differ from the one that actually gated the request.
    */
   velum: VelumTelemetry | null;
+  /**
+   * The evidence policy the scan worker actually attached, carried from it.
+   *
+   * Not recomputed here. The worker built the message list, so it is the only
+   * thing that knows whether the policy went in and at which index; a
+   * main-thread copy would be a second source for one fact.
+   */
+  evidencePolicy: EvidencePolicyFacts | null;
   requestId: string;
   receivedAt: string;
   /** When the queue admitted this request; the start of its evidence window. */
@@ -1153,6 +1163,7 @@ async function buildTelemetry(
     runtimeBuild: a.served.runtime.build,
     gpu: a.gpu,
     velum: await withModelOutput(deps, a.requestId, a.velum, m.completionText, deps.config.velumMode),
+    evidencePolicy: a.evidencePolicy,
     tokenCounts,
     sampler,
     attemptLifetime,
@@ -1232,6 +1243,7 @@ function finishNonRouted(
   dialect: Dialect,
   lifetime: AttemptLifetime | null = null,
   velum: VelumTelemetry | null = null,
+  evidencePolicy: EvidencePolicyFacts | null = null,
 ): void {
   const telemetry: RequestTelemetry = {
     requestId,
@@ -1246,6 +1258,10 @@ function finishNonRouted(
     completionTokens: null,
     promptTokensPerSecond: null,
     completionTokensPerSecond: null,
+    // Null unless inspection got far enough to attach one. A refusal reached
+    // before admission was never framed by a policy, and saying otherwise would
+    // claim a boundary applied to a request that never had one.
+    evidencePolicy,
     // No model ran, so there is nothing to attribute. `unknown` rather than a
     // zero count: a refused or escalated request produced no tokens, and a zero
     // would aggregate as a measurement of zero rather than as an absence.

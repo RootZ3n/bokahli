@@ -36,6 +36,7 @@ import { Worker } from 'node:worker_threads';
 import type { BokahliChatMessage, VelumPacketReport, VelumTelemetry } from '@bokahli/contracts';
 
 import type { AuthSource } from './auth.js';
+import type { EvidencePolicyIdentity } from './evidence-policy.js';
 import { engineIdentity, type EvidenceItem, type TrustMode } from './trust.js';
 import {
   bindsTo, type ScanJob, type ScanReady, type ScanResponse, type ScanZone,
@@ -51,7 +52,12 @@ export interface ScanPoolOptions {
 }
 
 export type ScanDispatch =
-  | { readonly kind: 'ADMITTED'; readonly messages: readonly BokahliChatMessage[]; readonly telemetry: VelumTelemetry }
+  | {
+    readonly kind: 'ADMITTED';
+    readonly messages: readonly BokahliChatMessage[];
+    readonly telemetry: VelumTelemetry;
+    readonly evidencePolicy: EvidencePolicyIdentity;
+  }
   | { readonly kind: 'BLOCKED'; readonly telemetry: VelumTelemetry; readonly reason: string }
   | {
     readonly kind: 'ESCALATE';
@@ -331,7 +337,12 @@ export class ScanPool {
 
     switch (msg.type) {
       case 'admitted':
-        this.#settle(slot, { kind: 'ADMITTED', messages: msg.messages, telemetry: msg.telemetry });
+        this.#settle(slot, {
+          kind: 'ADMITTED',
+          messages: msg.messages,
+          telemetry: msg.telemetry,
+          evidencePolicy: msg.evidencePolicy,
+        });
         return;
       case 'blocked':
         this.#settle(slot, { kind: 'BLOCKED', telemetry: msg.telemetry, reason: msg.reason ?? 'evidence blocked' });

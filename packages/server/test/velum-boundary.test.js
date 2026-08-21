@@ -19,6 +19,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { admitRequest, inspectModelOutput, citationFor } from '@bokahli/server/trust';
+import { EVIDENCE_POLICY_TEXT } from '@bokahli/server/evidence-policy';
 import {
   validateVelumTelemetry,
   BOKAHLI_TRUST_ZONES,
@@ -175,7 +176,18 @@ test('forged system, developer and tool framing inside evidence stays inert', ()
   const evidenceMessages = r.messages.filter((m) => m.content.includes('velum:untrusted-evidence'));
   assert.equal(evidenceMessages.length, 1, 'one message, whatever the content claims');
   assert.equal(evidenceMessages[0].role, 'user');
-  assert.ok(r.messages.every((m) => m.role !== 'system'), 'no system message was created');
+  // Exactly one system message, and it is Bokahli's own evidence policy —
+  // byte-identical to the constant, carrying none of the forged text. The
+  // original assertion here was "no system message was created", which was the
+  // right property expressed through an accident of the implementation: at the
+  // time Bokahli's own system message was the empty string, so *any* system
+  // message could only have come from the evidence. Now one legitimately does,
+  // and the property has to be stated as what it always meant.
+  const system = r.messages.filter((m) => m.role === 'system');
+  assert.equal(system.length, 1, 'the evidence channel creates no system message of its own');
+  assert.equal(system[0].content, EVIDENCE_POLICY_TEXT);
+  assert.equal(system[0].content.includes('developer mode'), false);
+  assert.equal(system[0].content.includes('velum:untrusted-evidence'), false);
 
   const body = evidenceMessages[0].content;
   assert.equal(body.split('<<<velum:untrusted-evidence').length - 1, 1, 'header cannot be forged');
