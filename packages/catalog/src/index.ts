@@ -266,7 +266,48 @@ function parseArtifact(item: Record<string, unknown>, catalogDir: string): Inter
         'by the operator. Set INSTALLED_UNQUALIFIED here and import evidence instead.',
     );
   }
-  const operational = item['operational'] as CatalogEntry['operational'];
+  // `operational` is read, not cast.
+  //
+  // It used to be `item['operational'] as CatalogEntry['operational']` — an
+  // unchecked cast that told the type system the block is always present while
+  // the file said otherwise. Three of four artifacts in this catalog carried no
+  // `operational` at all, so `a.operational.servedContextTokens` threw inside
+  // the AUTO router and Bokahli answered HTTP 500. Nothing else reached that
+  // path: every campaign request routes EXACT, and EXACT reads the attestation
+  // first. A typed refusal is the contract, and a dereference is not one.
+  //
+  // Refused at load, for the same reason a QUALIFIED status is refused above:
+  // it keeps the API's answer and the router's answer the same, and it names
+  // the file and the field instead of surfacing as an unhandled error under
+  // some caller's request id months later.
+  const rawOperational = item['operational'];
+  if (rawOperational === null || typeof rawOperational !== 'object' || Array.isArray(rawOperational)) {
+    throw new CatalogError(
+      `artifact ${modelId} declares no operational block. Routing needs the served context ` +
+        'window and the concurrency this artifact is served under; without them an AUTO ' +
+        'request cannot be told whether it fits.',
+    );
+  }
+  const op = rawOperational as Record<string, unknown>;
+  for (const k of ['servedContextTokens', 'maxConcurrentRequests'] as const) {
+    const v = op[k];
+    if (typeof v !== 'number' || !Number.isInteger(v) || v <= 0) {
+      throw new CatalogError(
+        `artifact ${modelId} operational.${k} must be a positive integer, not ${JSON.stringify(v)}`,
+      );
+    }
+  }
+  // `measuredAt` stays nullable and means exactly what it says: the two numbers
+  // above are how the runtime is *configured*, and null here is an artifact
+  // whose behaviour under that configuration has not been measured yet. A
+  // timestamp invented to fill the field would be the one lie this block cannot
+  // survive.
+  if (op['measuredAt'] !== null && typeof op['measuredAt'] !== 'string') {
+    throw new CatalogError(
+      `artifact ${modelId} operational.measuredAt must be an ISO string or null`,
+    );
+  }
+  const operational = rawOperational as CatalogEntry['operational'];
   // Resolved against the catalog's own directory, so a checkout at a different
   // path still finds its canaries and no absolute path has to be committed.
   const canaryRaw = item['tokenizerCanaryPath'];

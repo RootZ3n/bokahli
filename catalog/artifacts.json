@@ -87,7 +87,7 @@
         "license": "apache-2.0",
         "quantMethod": "importance-matrix (imatrix)",
         "publishedSha256": "c385920c6b956dc8c69c1ec1ebd750615c483734c949ef1f85d916df6cd9752d",
-        "producerKldSameTopP": "89.764 ± 0.079 %"
+        "producerKldSameTopP": "89.764 \u00b1 0.079 %"
       },
       "capabilities": {
         "chat": true,
@@ -104,6 +104,12 @@
         "evidenceRef": null,
         "qualifiedTaskClasses": [],
         "note": "Newly installed. Luak has issued no qualification evidence for this artifact. A different quantisation is a different artifact and a different qualification key: nothing is inherited from any other entry in this catalog."
+      },
+      "operational": {
+        "servedContextTokens": 32768,
+        "maxConcurrentRequests": 1,
+        "measuredAt": null,
+        "measurementNote": "Configuration, not measurement. servedContextTokens and maxConcurrentRequests are what the runtime is started with; measuredAt is null because nothing about this artifact's behaviour under that configuration has been measured yet."
       }
     },
     {
@@ -155,6 +161,12 @@
         "evidenceRef": null,
         "qualifiedTaskClasses": [],
         "note": "Newly installed. Luak has issued no qualification evidence for this artifact. A different quantisation is a different artifact and a different qualification key: nothing is inherited from any other entry in this catalog."
+      },
+      "operational": {
+        "servedContextTokens": 32768,
+        "maxConcurrentRequests": 1,
+        "measuredAt": null,
+        "measurementNote": "Configuration, not measurement. servedContextTokens and maxConcurrentRequests are what the runtime is started with; measuredAt is null because nothing about this artifact's behaviour under that configuration has been measured yet."
       }
     },
     {
@@ -206,6 +218,12 @@
         "evidenceRef": null,
         "qualifiedTaskClasses": [],
         "note": "Newly installed. Luak has issued no qualification evidence for this artifact. A different quantisation is a different artifact and a different qualification key: nothing is inherited from any other entry in this catalog."
+      },
+      "operational": {
+        "servedContextTokens": 32768,
+        "maxConcurrentRequests": 1,
+        "measuredAt": null,
+        "measurementNote": "Configuration, not measurement. servedContextTokens and maxConcurrentRequests are what the runtime is started with; measuredAt is null because nothing about this artifact's behaviour under that configuration has been measured yet."
       }
     }
   ]
