@@ -432,6 +432,18 @@ async function measureProfile(profile, opts) {
   record.affinity = affinityOf(pid);
   log(`    affinity: ${record.affinity.threads} threads, conforming=${record.affinity.conforming}`);
 
+  // `--swap-only` stops here: the deployment is up, exclusive and attested, and
+  // something else is about to measure it. Sharing this path with the
+  // throughput harness rather than writing a second swapper is deliberate — two
+  // implementations of "stop the old runtime and prove it let go" would agree
+  // until the day they did not, and that day the campaign would be measuring a
+  // machine it had not actually cleared.
+  if (opts.swapOnly) {
+    record.swapOnly = true;
+    record.finishedAt = new Date().toISOString();
+    return record;
+  }
+
   // ── throughput ────────────────────────────────────────────────────────────
   const promptText = fixedPrompt(opts.stanzas);
   log(`  warm-up (discarded)…`);
@@ -484,8 +496,9 @@ async function main() {
   };
   const planPath = flag('plan', null);
   if (planPath === null) {
-    console.error('usage: measure-placement.mjs --plan <profiles.json> [--out <file.json>] ' +
-      '[--repeats N] [--stanzas N] [--max-tokens N]');
+    console.error('usage: measure-placement.mjs --plan <profiles.json> [--out <file.json>]\n' +
+      '                            [--repeats N] [--stanzas N] [--max-tokens N] [--swap-only]\n' +
+      '  --swap-only  perform the exclusive swap and attest the result, measure nothing');
     process.exit(2);
   }
   mkdirSync(OUT_DIR, { recursive: true });
@@ -494,6 +507,7 @@ async function main() {
     repeats: Number(flag('repeats', 3)),
     stanzas: Number(flag('stanzas', 200)),
     maxTokens: Number(flag('max-tokens', 256)),
+    swapOnly: argv.includes('--swap-only'),
   };
   const out = flag('out', join(OUT_DIR, `placement-${new Date().toISOString().replace(/[:.]/g, '-')}.json`));
 
