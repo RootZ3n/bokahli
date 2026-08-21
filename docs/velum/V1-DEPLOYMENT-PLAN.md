@@ -193,6 +193,23 @@ scripts/sync-velum.mjs                             (new)
 docs/velum/V1-DEPLOYMENT-PLAN.md                   (new, this file)
 ```
 
+**Follow-up commit — deployment tooling only.** The rollback tooling above was
+found defective during the release itself (§5) and corrected in a separate
+commit on `v2`, which adds three paths and changes nothing that ships in the
+API:
+
+```
+scripts/deploy-inventory.sh                        (new)
+packages/server/test/deploy-tooling.test.js        (new)
+scripts/deploy-snapshot.sh                         (rewritten)
+scripts/deploy-restore.sh                          (rewritten)
+docs/velum/V1-DEPLOYMENT-PLAN.md                   (§5 rewritten)
+```
+
+No `packages/*/src` file, no contract and no test other than the new one is
+touched, so Luak's pinned B2 contract files are byte-identical across the two
+commits and its exact-object pin needs no advance.
+
 **Rollback:** see §5. Deployment rollback restores *artifacts*, not history; no
 Git ref is moved backward and no working file is discarded.
 
@@ -249,31 +266,57 @@ local — the live deployment is running code from *before* B2 existed
 therefore the first time B2 *and* the Velum boundary go live together, and the
 smoke tests in §7 are the first live exercise of either.
 
-**Rollback — non-destructive, and prepared in advance.**
+**Rollback — non-destructive, inventory-driven, and hostile-tested.**
 
-Two scripts, neither of which touches Git, the runtime, or the operator's
-working tree.
+Three files, none of which touches Git, the runtime, or the operator's working
+tree: `scripts/deploy-inventory.sh` (the canonical list and the checks),
+`scripts/deploy-snapshot.sh`, and `scripts/deploy-restore.sh`.
+
+**The defect this replaced.** The first version of the restore script chose the
+trees to preserve with `find . -mindepth 2 -maxdepth 2 -type d -name dist`. The
+seven trees live at depth three — `packages/<pkg>/dist` — so it matched zero of
+them. The restore still copied artifacts back and reported success, but the step
+that saves the build being replaced was a silent no-op. A rollback that failed
+halfway would have destroyed the only copy of what it was rolling back from, and
+nothing would have said so.
+
+The fix is not a corrected depth constant. **No tool discovers artifact trees
+from the filesystem any more.** One canonical list in `deploy-inventory.sh`
+defines the seven trees, and snapshot, verification, preservation, restore and
+the tests all consume that same list. A wrong depth constant is invisible; a
+missing entry in a seven-line list that every tool validates against is not.
+
+Everything fails closed: a missing tree, an extra `packages/*/dist` outside the
+inventory, a duplicate, a symlinked tree, a symlink inside a tree that points
+out of it, a non-directory in a tree position, or a filename the manifest format
+cannot round-trip all stop the tool.
 
 **Before step 5**, capture what is running:
 
 ```
-scripts/deploy-snapshot.sh
+scripts/deploy-snapshot.sh --kind running-deployment
 ```
 
-It copies the built `dist` trees of all seven packages into
-`~/.local/state/bokahli/rollback/<UTC-stamp>/artifacts`, writes
-`manifest.sha256` over every file, and writes `identity.txt` recording: the
-current Git commit, branch and dirty-file count; the Node path, version and
-sha256; both service units' `MainPID`, `NRestarts` and start timestamps; sha256
-of both unit files; **sha256 of the three environment files, never their
-contents**; and the listener set. The directory is `0700`, owner-only, and
-`latest` is symlinked to it. Nothing is restarted, signalled or deleted.
+`--kind` is mandatory and has no default. A snapshot is only a rollback target
+if someone can tell what it is, and this deployment already ran aground on
+exactly that: the artifacts serving since 06:37 had been overwritten by later
+builds, so a snapshot taken then would have verified perfectly and restored a
+build that was never running. The two kinds are `running-deployment` and
+`committed-fallback` — the latter built from an exact commit in a clean
+worktree, reproducible and explicitly *not* what is running.
 
-Recoverable: the exact JavaScript the API was serving, and the identity of
-everything it was serving it with. Not recoverable from here, and deliberately:
-the environment files, because a rollback store holding the bearer token and
-the runtime API key would be a second place a secret lives — they are verified
-by digest instead, and a restore refuses if they changed.
+The snapshot copies the seven trees into
+`~/.local/state/bokahli/rollback/<UTC-stamp>/artifacts` (mode `0700`), writes
+`manifest.sha256` over every file, and writes `snapshot.json`: schema version,
+inventory id, tree and file counts, host, repository name, source root, source
+kind, commit, tree and dirty-file count, Node path/version/digest, the manifest
+digest, both service units' state, the listener set, digests of the unit files
+and the CPU-exclusion drop-ins, and **digests of the three environment files,
+never their contents**. `snapshot.json.sha256` seals the record.
+
+That sealing is what binds the parts together: the record is checked against its
+seal, the manifest against the digest in the record, and the files against the
+manifest. Editing any one of them without the others is refused.
 
 **If validation fails**, restore:
 
@@ -282,27 +325,63 @@ scripts/deploy-restore.sh latest --dry-run    # verify without touching anything
 scripts/deploy-restore.sh latest
 ```
 
-In order: verify every captured file against `manifest.sha256` and refuse if the
-snapshot is not intact; verify the environment-file digests and refuse if
-configuration has moved; copy the *current* build and the last 2,000 journal
-lines aside into `rollback/failed-<stamp>/` so the failed deployment stays
-diagnosable; copy the captured artifacts back; restart **`bokahli.service`
-alone**; then print the API's new `MainPID`, confirm the runtime's `MainPID` is
-unchanged, re-probe `/health/live` and re-print the listeners.
+The order is the design. Everything that can refuse refuses before anything on
+disk changes:
+
+1. take the store lock, or refuse — concurrent runs are never interleaved, and
+   never queued either: a rollback that blocks behind another rollback is a
+   rollback nobody can reason about;
+2. verify the seal, the record, the manifest and every file;
+3. refuse a snapshot from another schema, inventory, repository or host;
+4. validate the deployment root and its seven trees;
+5. verify the environment-file digests;
+6. copy the build being displaced into `rollback/failed-<stamp>/` — all seven
+   trees, with **its own manifest and identity record** — plus the last 2,000
+   journal lines;
+7. stage the snapshot into siblings of each tree and verify the *staged* copy,
+   not the source, so content that changes after its own verification still
+   cannot land;
+8. only then, bounded atomic renames — two per tree, fourteen in all, on the
+   same filesystem.
+
+A failure anywhere in 1–7 leaves the deployed build byte-identical. A failure
+during 8 is rolled back. A process *killed* during 8 leaves marker directories
+that the next run refuses to walk past until `--recover` finishes the job, and
+because the displaced build was copied out in step 6, nothing is lost either
+way.
+
+Then it restarts **`bokahli.service` alone**, waits for `/health/live`, prints
+the API's new `MainPID`, confirms the runtime's `MainPID` *and start ticks* are
+unchanged, and re-prints the listeners.
 
 **What is never done:** `git reset --hard`, `git checkout` of tracked files,
 deletion of any working file, a reboot, a firmware or kernel change, taking a
-CPU offline, or restarting `bokahli-runtime.service`. The failed build is kept,
-not removed; the plan says to delete it deliberately once the deployment has
-settled, with `rm -rf ~/.local/state/bokahli/rollback/failed-<stamp>`.
+CPU offline, or restarting `bokahli-runtime.service`. The displaced build is
+kept, not removed; delete it deliberately once the deployment has settled, with
+`rm -rf ~/.local/state/bokahli/rollback/failed-<stamp>`.
 
-**Alternative, if a source-level rollback is ever wanted:** build the old commit
-in a throwaway worktree and deploy its artifacts —
+**Hostile tests** — `packages/server/test/deploy-tooling.test.js`, 30 tests
+against the real scripts in a disposable deployment root with a fake `HOME`, so
+no live service and no real credential file is involved. They cover the original
+depth-3 defect; a missing, extra, symlinked or non-directory tree; a symlink
+escaping its tree; a corrupt manifest, corrupt file, edited record and smuggled
+extra file; snapshots from the wrong schema, inventory, repository or host; a
+manifest path that traverses out of the inventory; a changed environment digest;
+a snapshot swapped *after* its own verification; an unwritable destination;
+interrupted staging and interrupted replacement, each killed mid-operation; a
+concurrent invocation; that the displaced build is genuinely preserved; a full
+seven-tree round-trip proven byte-for-byte; and that every failure path leaves
+the deployed artifacts byte-identical.
+
+**Source-level fallback.** Build an exact commit in a throwaway worktree and
+snapshot *that* as a `committed-fallback` —
 
 ```
-git -C ~/repos/bokahli worktree add /tmp/bokahli-rollback 94f4d6c
+git -C ~/repos/bokahli worktree add --detach /tmp/bokahli-rollback 94f4d6c
 ( cd /tmp/bokahli-rollback && npm ci && npx tsc --build )
-# copy its dist trees in, restart bokahli.service, then:
+scripts/deploy-snapshot.sh --kind committed-fallback \
+  --source /tmp/bokahli-rollback --label 94f4d6c \
+  --note "reproducible committed fallback; not the 06:37 build"
 git -C ~/repos/bokahli worktree remove /tmp/bokahli-rollback
 ```
 
