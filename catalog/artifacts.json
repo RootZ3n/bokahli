@@ -225,6 +225,64 @@
         "measuredAt": null,
         "measurementNote": "Configuration, not measurement. servedContextTokens and maxConcurrentRequests are what the runtime is started with; measuredAt is null because nothing about this artifact's behaviour under that configuration has been measured yet."
       }
+    },
+    {
+      "modelId": "qwen3.5-9b.q6-k",
+      "displayName": "Qwen3.5 9B (Q6_K)",
+      "digest": "sha256:073a9275e65d9c8cd2819cf5f77b99fbaa6e87ba591da6bbaa86ec073a64bfef",
+      "artifactPath": "/home/zen/models/Qwen_Qwen3.5-9B-Q6_K.gguf",
+      "tokenizerCanaryPath": "canaries/qwen3.5-9b.q6-k.canary.json",
+      "runtimeAlias": "qwen3.5-9b.q6-k",
+      "backend": "primary",
+      "facts": {
+        "format": "gguf",
+        "architecture": "qwen35",
+        "quantization": "Q6_K",
+        "sizeBytes": 7958818848,
+        "parameterCount": null,
+        "activeParameterCount": null,
+        "expertCount": null,
+        "expertUsedCount": null,
+        "contextTrainTokens": 262144,
+        "vocabSize": 248320,
+        "embeddingLength": 4096,
+        "blockCount": 33,
+        "tokenizerModel": "gpt2",
+        "tokenizerPre": "qwen35",
+        "chatTemplateSha256": "sha256:a4aee8afcf2e0711942cf848899be66016f8d14a889ff9ede07bca099c28f715"
+      },
+      "provenance": {
+        "producer": "bartowski",
+        "repo": "bartowski/Qwen_Qwen3.5-9B-GGUF",
+        "revision": "182be2fd6c7bc44887d88a91cb03ff009cc9f549",
+        "upstreamModel": "Qwen/Qwen3.5-9B",
+        "license": "apache-2.0",
+        "quantMethod": "importance-matrix (imatrix)",
+        "publishedSha256": "073a9275e65d9c8cd2819cf5f77b99fbaa6e87ba591da6bbaa86ec073a64bfef",
+        "note": "Dense sibling of the qwen35moe artifacts already installed. Tokenizer metadata and chat template are byte-identical to them (sha256:ec568e23... / sha256:a4aee8af...), so the canary corpus transfers exactly; the canary is still bound to this artifact's own digest and a 35B suite can never verify against it. mmproj is published upstream and is deliberately not installed: Bokahli serves the language model only."
+      },
+      "capabilities": {
+        "chat": true,
+        "completion": true,
+        "tools": true,
+        "vision": false,
+        "audio": false,
+        "embedding": false,
+        "reasoningEffort": false
+      },
+      "qualification": {
+        "status": "INSTALLED_UNQUALIFIED",
+        "authority": "none",
+        "evidenceRef": null,
+        "qualifiedTaskClasses": [],
+        "note": "Newly installed. Luak has issued no qualification evidence for this artifact. A different model is a different qualification key: nothing is inherited from any other entry in this catalog, including the 35B artifacts that share its tokenizer."
+      },
+      "operational": {
+        "servedContextTokens": 32768,
+        "maxConcurrentRequests": 1,
+        "measuredAt": null,
+        "measurementNote": "Configuration, not measurement. Nothing about this artifact's behaviour under it has been measured yet."
+      }
     }
   ]
 }
