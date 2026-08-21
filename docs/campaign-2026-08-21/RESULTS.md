@@ -42,16 +42,16 @@ measured run carries a distinct prompt prefix so nothing is served from KV cache
 
 ## Stage A — both regimes, never pooled
 
-| artifact                | regime        | n | outcomes         | attribution | valid JSON | inj. obeyed | inj. detected | token source                       | notes |
-|-------------------------|---------------|---|------------------|-------------|------------|-------------|---------------|------------------------------------|-------|
-| gemma4-12b.q6-k         | unconstrained | 6 | PARTIAL:6        | MODEL:6     | 6/6        | 0           | 0/3           | runtime_reported_unknown_tokenizer |       |
-| gemma4-12b.q6-k         | json_schema   | 6 | PARTIAL:6        | MODEL:6     | 6/6        | 0           | 0/3           | runtime_reported_unknown_tokenizer |       |
-| gemma4-26b-a4b.q4-k-m   | unconstrained | 6 | PARTIAL:3 FAIL:3 | MODEL:6     | 3/6        | 0           | 0/0           | runtime_reported_unknown_tokenizer |       |
-| gemma4-26b-a4b.q4-k-m   | json_schema   | 6 | PARTIAL:6        | MODEL:6     | 6/6        | 0           | 3/3           | runtime_reported_unknown_tokenizer |       |
-| qwen3.5-35b-a3b.iq3-xxs | unconstrained | 6 | PARTIAL:6        | MODEL:6     | 6/6        | 0           | 3/3           | runtime_tokenizer                  |       |
-| qwen3.5-35b-a3b.iq3-xxs | json_schema   | 6 | PARTIAL:6        | MODEL:6     | 6/6        | 0           | 3/3           | runtime_tokenizer                  |       |
-| qwen3.5-35b-a3b.q2-k    | unconstrained | 6 | PARTIAL:6        | MODEL:6     | 6/6        | 0           | 3/3           | runtime_tokenizer                  |       |
-| qwen3.5-35b-a3b.q2-k    | json_schema   | 6 | PARTIAL:6        | MODEL:6     | 6/6        | 0           | 3/3           | runtime_tokenizer                  |       |
+| artifact                | suite     | regime        | n | outcomes         | attribution | valid JSON | inj. obeyed | inj. detected | token source                       | notes |
+|-------------------------|-----------|---------------|---|------------------|-------------|------------|-------------|---------------|------------------------------------|-------|
+| gemma4-12b.q6-k         | L1 triage | unconstrained | 6 | PARTIAL:6        | MODEL:6     | 6/6        | 0           | 0/3           | runtime_reported_unknown_tokenizer |       |
+| gemma4-12b.q6-k         | L1 triage | json_schema   | 6 | PARTIAL:6        | MODEL:6     | 6/6        | 0           | 0/3           | runtime_reported_unknown_tokenizer |       |
+| gemma4-26b-a4b.q4-k-m   | L1 triage | unconstrained | 6 | PARTIAL:3 FAIL:3 | MODEL:6     | 3/6        | 0           | 0/0           | runtime_reported_unknown_tokenizer |       |
+| gemma4-26b-a4b.q4-k-m   | L1 triage | json_schema   | 6 | PARTIAL:6        | MODEL:6     | 6/6        | 0           | 3/3           | runtime_reported_unknown_tokenizer |       |
+| qwen3.5-35b-a3b.iq3-xxs | L1 triage | unconstrained | 6 | PARTIAL:6        | MODEL:6     | 6/6        | 0           | 3/3           | runtime_tokenizer                  |       |
+| qwen3.5-35b-a3b.iq3-xxs | L1 triage | json_schema   | 6 | PARTIAL:6        | MODEL:6     | 6/6        | 0           | 3/3           | runtime_tokenizer                  |       |
+| qwen3.5-35b-a3b.q2-k    | L1 triage | unconstrained | 6 | PARTIAL:6        | MODEL:6     | 6/6        | 0           | 3/3           | runtime_tokenizer                  |       |
+| qwen3.5-35b-a3b.q2-k    | L1 triage | json_schema   | 6 | PARTIAL:6        | MODEL:6     | 6/6        | 0           | 3/3           | runtime_tokenizer                  |       |
 
 ### Per-lane detail — kept apart, never collapsed into a score
 
@@ -59,16 +59,16 @@ measured run carries a distinct prompt prefix so nothing is served from KV cache
 fence escaping — grounded, and reported apart so the transport's contribution to
 the grounding rate stays visible.
 
-| artifact                | regime        | n | citations valid | escaped | quote mismatch | forbidden claims | hallucinated | abstention correct | over-refusal | answered unanswerable |
-|-------------------------|---------------|---|-----------------|---------|----------------|------------------|--------------|--------------------|--------------|-----------------------|
-| gemma4-12b.q6-k         | json_schema   | 6 | 0/3             | 0       | 3              | 0                | 0            | 3/6                | 0            | 3                     |
-| gemma4-12b.q6-k         | unconstrained | 6 | 1/3             | 0       | 2              | 0                | 0            | 3/6                | 0            | 3                     |
-| gemma4-26b-a4b.q4-k-m   | json_schema   | 6 | 6/6             | 0       | 0              | 0                | 0            | 3/6                | 0            | 3                     |
-| gemma4-26b-a4b.q4-k-m   | unconstrained | 6 | 0/0             | 0       | 0              | 0                | 0            | 0/6                | 0            | 3                     |
-| qwen3.5-35b-a3b.iq3-xxs | json_schema   | 6 | 6/6             | 0       | 0              | 0                | 0            | 6/6                | 0            | 0                     |
-| qwen3.5-35b-a3b.iq3-xxs | unconstrained | 6 | 6/6             | 0       | 0              | 0                | 0            | 6/6                | 0            | 0                     |
-| qwen3.5-35b-a3b.q2-k    | json_schema   | 6 | 0/15            | 0       | 15             | 0                | 0            | 6/6                | 0            | 0                     |
-| qwen3.5-35b-a3b.q2-k    | unconstrained | 6 | 0/21            | 0       | 21             | 0                | 0            | 6/6                | 0            | 0                     |
+| artifact                | suite     | regime        | n | citations valid | escaped | quote mismatch | forbidden claims | hallucinated | abstention correct | over-refusal | answered unanswerable |
+|-------------------------|-----------|---------------|---|-----------------|---------|----------------|------------------|--------------|--------------------|--------------|-----------------------|
+| gemma4-12b.q6-k         | L1 triage | json_schema   | 6 | 0/3             | 0       | 3              | 0                | 0            | 3/6                | 0            | 3                     |
+| gemma4-12b.q6-k         | L1 triage | unconstrained | 6 | 1/3             | 0       | 2              | 0                | 0            | 3/6                | 0            | 3                     |
+| gemma4-26b-a4b.q4-k-m   | L1 triage | json_schema   | 6 | 6/6             | 0       | 0              | 0                | 0            | 3/6                | 0            | 3                     |
+| gemma4-26b-a4b.q4-k-m   | L1 triage | unconstrained | 6 | 0/0             | 0       | 0              | 0                | 0            | 0/6                | 0            | 3                     |
+| qwen3.5-35b-a3b.iq3-xxs | L1 triage | json_schema   | 6 | 6/6             | 0       | 0              | 0                | 0            | 6/6                | 0            | 0                     |
+| qwen3.5-35b-a3b.iq3-xxs | L1 triage | unconstrained | 6 | 6/6             | 0       | 0              | 0                | 0            | 6/6                | 0            | 0                     |
+| qwen3.5-35b-a3b.q2-k    | L1 triage | json_schema   | 6 | 0/15            | 0       | 15             | 0                | 0            | 6/6                | 0            | 0                     |
+| qwen3.5-35b-a3b.q2-k    | L1 triage | unconstrained | 6 | 0/21            | 0       | 21             | 0                | 0            | 6/6                | 0            | 0                     |
 
 ### Stage A survival
 
@@ -107,6 +107,54 @@ and confers nothing on any artifact.
 | gemma4-26b-a4b.q4-k-m   | ngl999 moe:16 ctx32768 | 50.1       | 899.9       | 10026    | 11.60   |
 
 ## Stage B — the full 19-fixture pack, survivors only
+
+### Outcomes
+
+| artifact                | suite     | regime        | n  | outcomes           | attribution | valid JSON | inj. obeyed | inj. detected | token source      | notes                                                 |
+|-------------------------|-----------|---------------|----|--------------------|-------------|------------|-------------|---------------|-------------------|-------------------------------------------------------|
+| qwen3.5-35b-a3b.iq3-xxs | L1 triage | unconstrained | 30 | PARTIAL:24 FAIL:6  | MODEL:30    | 24/30      | 0           | 3/3           | runtime_tokenizer |                                                       |
+| qwen3.5-35b-a3b.iq3-xxs | L1 triage | json_schema   | 30 | PARTIAL:30         | MODEL:30    | 30/30      | 0           | 3/3           | runtime_tokenizer |                                                       |
+| qwen3.5-35b-a3b.iq3-xxs | L2 recon  | unconstrained | 27 | PARTIAL:27         | MODEL:27    | 27/27      | 0           | 0/3           | runtime_tokenizer |                                                       |
+| qwen3.5-35b-a3b.iq3-xxs | L2 recon  | json_schema   | 18 | PARTIAL:16 PASS:2  | MODEL:18    | 18/18      | 0           | 0/2           | runtime_tokenizer | ABORTED: attempt 18: /health/ready did not return 200 |
+| qwen3.5-35b-a3b.q2-k    | L1 triage | unconstrained | 30 | FAIL:15 PARTIAL:15 | MODEL:30    | 15/30      | 0           | 3/3           | runtime_tokenizer |                                                       |
+| qwen3.5-35b-a3b.q2-k    | L1 triage | json_schema   | 30 | PARTIAL:30         | MODEL:30    | 30/30      | 0           | 3/3           | runtime_tokenizer |                                                       |
+| qwen3.5-35b-a3b.q2-k    | L2 recon  | unconstrained | 27 | PARTIAL:27         | MODEL:27    | 27/27      | 0           | 0/3           | runtime_tokenizer |                                                       |
+| qwen3.5-35b-a3b.q2-k    | L2 recon  | json_schema   | 27 | PARTIAL:24 PASS:3  | MODEL:27    | 27/27      | 0           | 0/3           | runtime_tokenizer |                                                       |
+
+### Per-lane detail — kept apart, never collapsed into a score
+
+`escaped` counts citations that matched only after undoing the transport's own
+fence escaping — grounded, and reported apart so the transport's contribution to
+the grounding rate stays visible.
+
+| artifact                | suite     | regime        | n  | citations valid | escaped | quote mismatch | forbidden claims | hallucinated | abstention correct | over-refusal | answered unanswerable |
+|-------------------------|-----------|---------------|----|-----------------|---------|----------------|------------------|--------------|--------------------|--------------|-----------------------|
+| qwen3.5-35b-a3b.iq3-xxs | L1 triage | json_schema   | 30 | 33/75           | 0       | 42             | 0                | 0            | 21/30              | 6            | 3                     |
+| qwen3.5-35b-a3b.iq3-xxs | L1 triage | unconstrained | 30 | 30/51           | 0       | 21             | 0                | 0            | 18/30              | 3            | 3                     |
+| qwen3.5-35b-a3b.iq3-xxs | L2 recon  | json_schema   | 18 | 22/42           | 0       | 0              | 0                | 0            | 18/18              | 0            | 0                     |
+| qwen3.5-35b-a3b.iq3-xxs | L2 recon  | unconstrained | 27 | 0/0             | 0       | 0              | 0                | 0            | 27/27              | 0            | 0                     |
+| qwen3.5-35b-a3b.q2-k    | L1 triage | json_schema   | 30 | 27/60           | 3       | 30             | 0                | 0            | 27/30              | 0            | 3                     |
+| qwen3.5-35b-a3b.q2-k    | L1 triage | unconstrained | 30 | 15/33           | 6       | 18             | 0                | 0            | 12/30              | 0            | 3                     |
+| qwen3.5-35b-a3b.q2-k    | L2 recon  | json_schema   | 27 | 21/57           | 0       | 6              | 0                | 0            | 27/27              | 0            | 0                     |
+| qwen3.5-35b-a3b.q2-k    | L2 recon  | unconstrained | 27 | 0/0             | 0       | 0              | 0                | 0            | 27/27              | 0            | 0                     |
+
+### Stage A survival
+
+A campaign gate, not a qualification threshold. It decides where Stage B time goes
+and confers nothing on any artifact.
+
+- **qwen3.5-35b-a3b.iq3-xxs** — SURVIVES
+  - `unconstrained`: structured output invalid on 6 of 30
+  - `json_schema`: clean
+- **qwen3.5-35b-a3b.iq3-xxs** — SURVIVES
+  - `unconstrained`: clean
+  - `json_schema`: run aborted: attempt 18: /health/ready did not return 200
+- **qwen3.5-35b-a3b.q2-k** — SURVIVES
+  - `unconstrained`: structured output invalid on 15 of 30
+  - `json_schema`: clean
+- **qwen3.5-35b-a3b.q2-k** — SURVIVES
+  - `unconstrained`: clean
+  - `json_schema`: clean
 
 
 ## Notes on reading the placement table
@@ -171,6 +219,55 @@ sibling `.completions.json`, so a structured-output verdict is a claim about
 bytes someone can still read. Reproducing the defect at all required finding a
 *different* artifact that exhibits it — `gemma4-26b-a4b.q4-k-m`, which does so
 deterministically — because the original evidence no longer exists to re-examine.
+
+## Stage B, and the number that should decide the production regime
+
+The full pack — 10 triage fixtures and 9 reconnaissance fixtures, both splits,
+three repeats, both regimes, on each survivor's fastest measured placement.
+
+**Unconstrained structured-output validity, at scale:**
+
+| artifact | L1 triage | L2 recon |
+|---|---|---|
+| `qwen3.5-35b-a3b.q2-k` | **15 of 30** | 27 of 27 |
+| `qwen3.5-35b-a3b.iq3-xxs` | **24 of 30** | 27 of 27 |
+
+**Constrained: 30 of 30 and 27 of 27, both artifacts, both suites.** Every
+single failure disappears.
+
+The control — the artifact serving Mushin today — produces invalid JSON on
+**half** of unconstrained triage requests. Stage A's two fixtures showed it 6 of
+6 valid. The difference is entirely sample size, and the failures are
+deterministic per fixture rather than random, so a narrow fixture set does not
+merely under-count them: it can miss them completely.
+
+### The reconnaissance suite is worse than it looks
+
+Both artifacts return 27 of 27 syntactically valid documents on L2
+unconstrained, and **0 parsed citations**. Constrained, the same artifacts return
+57 and 42 citations respectively. The cause is field names, not syntax — see the
+finding below. Unconstrained reconnaissance output from either survivor parses
+cleanly and carries nothing a caller can resolve.
+
+### Comparing the two survivors
+
+| | `q2-k` | `iq3-xxs` |
+|---|---|---|
+| decode, fastest measured | **100.0 tok/s** (`--n-cpu-moe 8`) | 73.6 tok/s (`--n-cpu-moe 16`) |
+| prefill | **1654.5 tok/s** | 1168.5 tok/s |
+| VRAM held | 10846 MiB | 10118 MiB |
+| host RSS | **4.19 GiB** | 7.27 GiB |
+| unconstrained JSON, triage | 15/30 | **24/30** |
+| constrained JSON, both suites | 57/57 | 45/45 (one run partial) |
+| citation grounding, triage constrained | 27/60 | **33/75** |
+| citation line indexing | **0-based — wrong** | 1-based, mostly correct |
+| injections followed | 0 | 0 |
+| injections detected, triage | 3/3 | 3/3 |
+
+`q2-k` is faster and lighter on host memory. `iq3-xxs` is better at every
+correctness lane measured. Neither is qualified, and this campaign does not pick
+between them: that is an operator decision against a policy that does not exist
+yet.
 
 ## Findings
 
