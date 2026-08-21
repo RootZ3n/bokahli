@@ -1,6 +1,50 @@
 import type { InternalArtifact } from '@bokahli/catalog';
 import type { RuntimeIdentity } from '@bokahli/contracts';
 
+/**
+ * Does the runtime's reported file type describe the catalogued quantisation?
+ *
+ * llama.cpp reports a display string, not the GGUF quant name: `Q4_K_M` comes
+ * back as `Q4_K - Medium`, `IQ3_XXS` as `IQ3_XXS - 3.0625 bpw`, and — the case
+ * that makes any naive rule wrong — plain `Q2_K` also comes back as
+ * `Q2_K - Medium`.
+ *
+ * The previous check was `ftype.toUpperCase().includes(quantisation)`. It said
+ * no to a correctly loaded `Q4_K_M`, because `Q4_K - MEDIUM` does not contain
+ * `Q4_K_M`; and it said yes to things it should have caught, because
+ * `Q4_K - Small` does contain `Q4_K`, so a small-quant artifact catalogued as
+ * a medium one attested clean.
+ *
+ * Both sides are parsed instead of pattern-matched. The family must match
+ * exactly, and where both sides state a size, the sizes must correspond. Where
+ * the catalogue states no size — `Q2_K`, `Q6_K`, `IQ3_XXS` — the family alone
+ * decides, because there is no finer claim to check.
+ */
+const FTYPE_SIZE_WORD: Readonly<Record<string, string>> = {
+  SMALL: 'S',
+  MEDIUM: 'M',
+  LARGE: 'L',
+  'EXTRA SMALL': 'XS',
+};
+
+export function quantisationAgrees(catalogued: string, reportedFtype: string): boolean {
+  const reported = reportedFtype.toUpperCase().trim();
+  const dash = reported.indexOf(' - ');
+  const reportedFamily = (dash === -1 ? reported : reported.slice(0, dash)).trim();
+  const qualifier = dash === -1 ? '' : reported.slice(dash + 3).trim();
+  // A bits-per-weight qualifier states no size letter; it is descriptive only.
+  const reportedSize = /BPW$/.test(qualifier) ? null : (FTYPE_SIZE_WORD[qualifier] ?? null);
+
+  const want = catalogued.toUpperCase().trim();
+  const sized = /^(.*)_(XS|S|M|L)$/.exec(want);
+  const wantFamily = sized ? sized[1]! : want;
+  const wantSize = sized ? sized[2]! : null;
+
+  if (wantFamily !== reportedFamily) return false;
+  if (wantSize !== null && reportedSize !== null) return wantSize === reportedSize;
+  return true;
+}
+
 /** Raw shape of the subset of llama-server /props Bokahli depends on. */
 interface BackendProps {
   build_info?: string;
@@ -417,7 +461,7 @@ export class LlamaBackend {
     if (p.model_alias && p.model_alias !== artifact.runtimeAlias) {
       reasons.push(`backend alias mismatch: expected ${artifact.runtimeAlias}, got ${p.model_alias}`);
     }
-    if (p.model_ftype && !p.model_ftype.toUpperCase().includes(artifact.facts.quantization)) {
+    if (p.model_ftype && !quantisationAgrees(artifact.facts.quantization, p.model_ftype)) {
       reasons.push(`quantisation mismatch: expected ${artifact.facts.quantization}, got ${p.model_ftype}`);
     }
 

@@ -53,6 +53,160 @@
         "measuredAt": "2026-08-20T11:05:00Z",
         "measurementNote": "Context tier chosen from measurement, not from the model's 262144 train context. At 32768 with --parallel 1: 2418 MiB VRAM steady / 2476 MiB peak, 2.03 s cold load, 572.6 tok/s prefill and 52.3 tok/s decode at 24357-token fill. 65536 was also measured stable (3090 MiB, 552.4 prefill, 48.9 decode) but doubles worst-case prefill wall time to 88.5 s. See docs/phase1/measurements/context-tiers.md"
       }
+    },
+    {
+      "modelId": "qwen3.5-35b-a3b.iq3-xxs",
+      "displayName": "Qwen3.5 35B A3B (IQ3_XXS)",
+      "digest": "sha256:c385920c6b956dc8c69c1ec1ebd750615c483734c949ef1f85d916df6cd9752d",
+      "artifactPath": "/home/zen/models/Qwen_Qwen3.5-35B-A3B-IQ3_XXS.gguf",
+      "tokenizerCanaryPath": "canaries/qwen3.5-35b-a3b.iq3-xxs.canary.json",
+      "runtimeAlias": "qwen3.5-35b-a3b.iq3-xxs",
+      "backend": "primary",
+      "facts": {
+        "format": "gguf",
+        "architecture": "qwen35moe",
+        "quantization": "IQ3_XXS",
+        "sizeBytes": 15761446720,
+        "parameterCount": null,
+        "activeParameterCount": null,
+        "expertCount": 256,
+        "expertUsedCount": 8,
+        "contextTrainTokens": 262144,
+        "vocabSize": 248320,
+        "embeddingLength": 2048,
+        "blockCount": 41,
+        "tokenizerModel": "gpt2",
+        "tokenizerPre": "qwen35",
+        "chatTemplateSha256": "sha256:a4aee8afcf2e0711942cf848899be66016f8d14a889ff9ede07bca099c28f715"
+      },
+      "provenance": {
+        "producer": "bartowski",
+        "repo": "bartowski/Qwen_Qwen3.5-35B-A3B-GGUF",
+        "revision": "3d2a22d4eb631b9c8fd2be94599dc2fd84b4a595",
+        "upstreamModel": "Qwen/Qwen3.5-35B-A3B",
+        "license": "apache-2.0",
+        "quantMethod": "importance-matrix (imatrix)",
+        "publishedSha256": "c385920c6b956dc8c69c1ec1ebd750615c483734c949ef1f85d916df6cd9752d",
+        "producerKldSameTopP": "89.764 ± 0.079 %"
+      },
+      "capabilities": {
+        "chat": true,
+        "completion": true,
+        "tools": true,
+        "vision": false,
+        "audio": false,
+        "embedding": false,
+        "reasoningEffort": false
+      },
+      "qualification": {
+        "status": "INSTALLED_UNQUALIFIED",
+        "authority": "none",
+        "evidenceRef": null,
+        "qualifiedTaskClasses": [],
+        "note": "Newly installed. Luak has issued no qualification evidence for this artifact. A different quantisation is a different artifact and a different qualification key: nothing is inherited from any other entry in this catalog."
+      }
+    },
+    {
+      "modelId": "gemma4-26b-a4b.q4-k-m",
+      "displayName": "Gemma 4 26B A4B Instruct (Q4_K_M)",
+      "digest": "sha256:a07f72221e8e3f77455ab0d7f7652d01a9f63c262b954aa6932a53275a0e895a",
+      "artifactPath": "/home/zen/models/google_gemma-4-26B-A4B-it-Q4_K_M.gguf",
+      "tokenizerCanaryPath": "canaries/gemma4-26b-a4b.q4-k-m.canary.json",
+      "runtimeAlias": "gemma4-26b-a4b.q4-k-m",
+      "backend": "primary",
+      "facts": {
+        "format": "gguf",
+        "architecture": "gemma4",
+        "quantization": "Q4_K_M",
+        "sizeBytes": 17035039872,
+        "parameterCount": null,
+        "activeParameterCount": null,
+        "expertCount": 128,
+        "expertUsedCount": 8,
+        "contextTrainTokens": 262144,
+        "vocabSize": 262144,
+        "embeddingLength": 2816,
+        "blockCount": 30,
+        "tokenizerModel": "gemma4",
+        "tokenizerPre": null,
+        "chatTemplateSha256": "sha256:ae53464bf3be25802b3a5b37def7fd89667067d7577049b3b2d74c4d8de4c6d4"
+      },
+      "provenance": {
+        "producer": "bartowski",
+        "repo": "bartowski/google_gemma-4-26B-A4B-it-GGUF",
+        "revision": "10f3b41bcf8d3047f4e136e7197ffc2dd1654c9d",
+        "upstreamModel": "google/gemma-4-26B-A4B-it",
+        "license": "apache-2.0",
+        "quantMethod": "importance-matrix (imatrix)",
+        "publishedSha256": "a07f72221e8e3f77455ab0d7f7652d01a9f63c262b954aa6932a53275a0e895a"
+      },
+      "capabilities": {
+        "chat": true,
+        "completion": true,
+        "tools": true,
+        "vision": false,
+        "audio": false,
+        "embedding": false,
+        "reasoningEffort": false
+      },
+      "qualification": {
+        "status": "INSTALLED_UNQUALIFIED",
+        "authority": "none",
+        "evidenceRef": null,
+        "qualifiedTaskClasses": [],
+        "note": "Newly installed. Luak has issued no qualification evidence for this artifact. A different quantisation is a different artifact and a different qualification key: nothing is inherited from any other entry in this catalog."
+      }
+    },
+    {
+      "modelId": "gemma4-12b.q6-k",
+      "displayName": "Gemma 4 12B Instruct (Q6_K)",
+      "digest": "sha256:53336de05c4af36dcb61daf0d984be076ddf0245e3ce7f61aa10b72cb4044e97",
+      "artifactPath": "/home/zen/models/gemma-4-12B-it-Q6_K.gguf",
+      "tokenizerCanaryPath": "canaries/gemma4-12b.q6-k.canary.json",
+      "runtimeAlias": "gemma4-12b.q6-k",
+      "backend": "primary",
+      "facts": {
+        "format": "gguf",
+        "architecture": "gemma4",
+        "quantization": "Q6_K",
+        "sizeBytes": 10239326688,
+        "parameterCount": null,
+        "activeParameterCount": null,
+        "expertCount": null,
+        "expertUsedCount": null,
+        "contextTrainTokens": 131072,
+        "vocabSize": 262144,
+        "embeddingLength": 3840,
+        "blockCount": 48,
+        "tokenizerModel": "gemma4",
+        "tokenizerPre": null,
+        "chatTemplateSha256": "sha256:ae53464bf3be25802b3a5b37def7fd89667067d7577049b3b2d74c4d8de4c6d4"
+      },
+      "provenance": {
+        "producer": "bartowski",
+        "repo": "bartowski/gemma-4-12B-it-GGUF",
+        "revision": "2ae7d41be21ca62de00a2d320ee9cec50daa3aa6",
+        "upstreamModel": "google/gemma-4-12B-it",
+        "license": "apache-2.0",
+        "quantMethod": "importance-matrix (imatrix)",
+        "publishedSha256": "53336de05c4af36dcb61daf0d984be076ddf0245e3ce7f61aa10b72cb4044e97"
+      },
+      "capabilities": {
+        "chat": true,
+        "completion": true,
+        "tools": true,
+        "vision": false,
+        "audio": false,
+        "embedding": false,
+        "reasoningEffort": false
+      },
+      "qualification": {
+        "status": "INSTALLED_UNQUALIFIED",
+        "authority": "none",
+        "evidenceRef": null,
+        "qualifiedTaskClasses": [],
+        "note": "Newly installed. Luak has issued no qualification evidence for this artifact. A different quantisation is a different artifact and a different qualification key: nothing is inherited from any other entry in this catalog."
+      }
     }
   ]
 }

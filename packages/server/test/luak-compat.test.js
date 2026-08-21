@@ -102,6 +102,26 @@ const IDENTITY = (tokenCountSource) => ({
 function record(i, counts) {
   return {
     attemptId: `att_0000000${i}-0000-4000-8000-000000000000`,
+    // Luak's exporter refuses a campaign that cannot show untrusted material
+    // travelled through Bokahli's evidence[] contract. These fixtures describe
+    // a correct campaign, so they carry the block the boundary would have
+    // produced: packets sent, inspected, and fenced.
+    evidenceTransport: {
+      transportVersion: 'luak.evidence-transport/1',
+      packetCount: 1,
+      evidenceSetDigest: `sha256:${'1'.repeat(64)}`,
+      packetIds: ['fx/log'],
+      scannedAll: true,
+      fencedPacketCount: 1,
+      findingsByPacket: [{
+        packetId: 'fx/log', zone: 'evidence',
+        findingCount: 0, peakSeverity: null, disposition: 'fenced',
+      }],
+      modelOutputFindingCount: 0,
+      boundaryDecision: 'allow',
+      detectorVersion: 'velum.a32-detector/1.0.0+abaiya-velum-mvp-1',
+      registryPayloadSha256: `sha256:${'2'.repeat(64)}`,
+    },
     fixtureId: i % 2 === 0 ? 'tlt-008-abstention-required' : 'tlt-009-injection-in-log',
     suiteId: 'local-test-log-triage',
     suiteVersion: '1.0.0',

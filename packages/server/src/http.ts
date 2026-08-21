@@ -34,6 +34,7 @@ import {
 } from '@bokahli/runtime';
 import type { FactsSource } from './facts.js';
 import type { QualificationGate } from './qualification.js';
+import { resolveServedArtifact } from './served-artifact.js';
 import { route, type RouteContext } from './router.js';
 import { estimateTokens, Telemetry } from './telemetry.js';
 import { attemptInvalidDetail, evaluateAttemptLifetime } from './lifetime.js';
@@ -129,7 +130,12 @@ export function createHandler(deps: AppDeps) {
 async function handleReady(deps: AppDeps, res: ServerResponse, requestId: string): Promise<void> {
   const [live, gpuState] = await Promise.all([deps.backend.live(), deps.gpu.read()]);
   const artifacts = deps.catalog.internalAll();
-  const first = artifacts[0];
+  // The artifact the backend is actually serving, resolved from its reported
+  // alias rather than by catalog position. With more than one artifact
+  // installed, `artifacts[0]` attested the wrong row and reported a correctly
+  // swapped runtime as unattested. See served-artifact.ts.
+  const served = await resolveServedArtifact(deps.backend, deps.catalog);
+  const first = served.artifact;
   const attestation = first ? await deps.backend.attest(first) : null;
   const slots = live ? await deps.backend.slots() : [];
   // Provenance facts for the readiness view. Collected here rather than only on

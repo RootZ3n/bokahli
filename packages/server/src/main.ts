@@ -12,6 +12,7 @@ import {
   validateCanarySuite,
 } from '@bokahli/runtime';
 import { loadConfig, loadOrCreateToken } from './config.js';
+import { resolveServedArtifact } from './served-artifact.js';
 import { QualificationFactsProvider } from './facts.js';
 import { QualificationGate } from './qualification.js';
 import { createHandler, type AppDeps } from './http.js';
@@ -91,7 +92,10 @@ async function main(): Promise<void> {
   });
 
   const live = await backend.live();
-  const attestation = artifacts[0] ? await backend.attest(artifacts[0]) : null;
+  // Resolved from the backend's reported alias, not catalog position: with
+  // several artifacts installed, position attests whichever happens to be first.
+  const servedAtBoot = await resolveServedArtifact(backend, catalog);
+  const attestation = servedAtBoot.artifact ? await backend.attest(servedAtBoot.artifact) : null;
   telemetry.log(live ? 'info' : 'warn', 'runtime.probe', {
     baseUrl: descriptor.baseUrl,
     reachable: live,

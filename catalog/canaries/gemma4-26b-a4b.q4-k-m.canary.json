@@ -1,0 +1,973 @@
+{
+  "schemaVersion": "bokahli.tokenizer-canary.v1",
+  "suiteId": "qwen35-broad.v1",
+  "artifactDigest": "sha256:a07f72221e8e3f77455ab0d7f7652d01a9f63c262b954aa6932a53275a0e895a",
+  "tokenizerMetadataDigest": "sha256:fa01ae7742a8a5c1b6c67d1c2985afbfa92f9ee6c7e218f4735c6490404e412c",
+  "vocabSize": 262144,
+  "encodeSettings": {
+    "addSpecial": false,
+    "parseSpecial": true
+  },
+  "encodeReference": {
+    "method": "llama-tokenize-vocab-only",
+    "generatorComponents": [
+      "libggml-base.so.0.20.2:b1acd8d268f9f49f9904d17649f045f8d1fd4f682e06c395c43ca09ccf6d5860",
+      "libggml-cpu.so.0.20.2:e0d2ab4a29834d46731f921a0813c3d1549a55d35fec654bb2d50383b0051258",
+      "libggml.so.0.20.2:e48b28c4668ae2b29407c440e676daf219ab9245cfc725adf13f8d75f98c262d",
+      "libllama.so.0.1.2:e37069837982c61d1d361a6db9fb8c1f1283744d0f9ce780e2bae7aba4e3dbf4",
+      "llama-tokenize:6d6e3657f791c12821d543608e93b0a51e43840f0e6dd1d783ee0be0095e61f2"
+    ],
+    "generatorDigest": "sha256:22687e35c3db441f43ef285caffb3526375c308abcd57411339530b02823a446",
+    "generatorBuild": "version: 0.1.2-dev (build 10505, commit ee4c505a4)",
+    "producedByBackendInstanceId": null,
+    "note": "llama-tokenize with vocab_only=true, one short-lived process per case, CUDA_VISIBLE_DEVICES emptied so the child cannot allocate VRAM. No server contact."
+  },
+  "decodeReference": {
+    "method": "gguf-token-table",
+    "generatorComponents": [
+      "tokenizer.ggml.tokens:8cc5015c3969207edf83408e16ae7f592c3ac1be7be186f461c44a00506193be"
+    ],
+    "generatorDigest": "sha256:fa01ae7742a8a5c1b6c67d1c2985afbfa92f9ee6c7e218f4735c6490404e412c",
+    "generatorBuild": null,
+    "producedByBackendInstanceId": null,
+    "note": "Decoded from the artifact’s own token table, byte-level BPE encoding reversed. Entries whose bytes are not valid UTF-8 alone are excluded: the JSON transport cannot carry them faithfully, so pinning them would fail a correct deployment."
+  },
+  "encode": [
+    {
+      "id": "ascii-words",
+      "note": "plain ASCII words: the base case that must not move",
+      "inputBase64": "VGhlIHF1aWNrIGJyb3duIGZveCBqdW1wcyBvdmVyIHRoZSBsYXp5IGRvZw==",
+      "expectedIds": [
+        818,
+        3823,
+        8864,
+        37423,
+        38167,
+        1024,
+        506,
+        31770,
+        4799
+      ]
+    },
+    {
+      "id": "ascii-punct",
+      "note": "punctuation clusters and quoting",
+      "inputBase64": "SGVsbG8sIHdvcmxkISAiWWVzIiAtLSAobm8pOyBbbWF5YmVdIHtwZXJoYXBzfTogMTAwJT8=",
+      "expectedIds": [
+        9259,
+        236764,
+        1902,
+        236888,
+        623,
+        10784,
+        236775,
+        2617,
+        568,
+        1904,
+        626,
+        870,
+        60766,
+        236842,
+        642,
+        79125,
+        7493,
+        236743,
+        236770,
+        236771,
+        236771,
+        236908,
+        236881
+      ]
+    },
+    {
+      "id": "ascii-mixed-case",
+      "note": "case boundaries inside a word",
+      "inputBase64": "Q2FtZWxDYXNlSWRlbnRpZmllciBzbmFrZV9jYXNlX25hbWUgU0NSRUFNSU5HX0NBU0U=",
+      "expectedIds": [
+        114919,
+        9818,
+        19535,
+        22825,
+        236779,
+        4925,
+        236779,
+        1201,
+        65340,
+        1936,
+        2850,
+        236779,
+        49710
+      ]
+    },
+    {
+      "id": "ws-leading",
+      "note": "leading whitespace, where byte-level BPE and SPM disagree most",
+      "inputBase64": "ICAgbGVhZGluZyBzcGFjZXM=",
+      "expectedIds": [
+        139,
+        26016,
+        9952
+      ]
+    },
+    {
+      "id": "ws-trailing",
+      "note": "trailing whitespace, routinely dropped by a normalising tokenizer",
+      "inputBase64": "dHJhaWxpbmcgc3BhY2VzICAg",
+      "expectedIds": [
+        136697,
+        9952,
+        139
+      ]
+    },
+    {
+      "id": "ws-repeated",
+      "note": "a long space run: merge tables encode these as single tokens",
+      "inputBase64": "YSAgICAgICAgICAgICAgICBi",
+      "expectedIds": [
+        236746,
+        152,
+        236763
+      ]
+    },
+    {
+      "id": "ws-newlines",
+      "note": "repeated newlines",
+      "inputBase64": "bGluZSBvbmUKCmxpbmUgdHdvCgoKbGluZSB0aHJlZQ==",
+      "expectedIds": [
+        1257,
+        886,
+        108,
+        1257,
+        1156,
+        109,
+        1257,
+        1806
+      ]
+    },
+    {
+      "id": "ws-tabs",
+      "note": "tabs, alone and mixed with spaces",
+      "inputBase64": "Y29sMQljb2wyCQljb2wzCiAJIG1peGVk",
+      "expectedIds": [
+        1475,
+        236770,
+        255968,
+        1475,
+        236778,
+        255969,
+        1475,
+        236800,
+        107,
+        236743,
+        255968,
+        9726
+      ]
+    },
+    {
+      "id": "ws-crlf",
+      "note": "CRLF, which a normaliser may rewrite to LF",
+      "inputBase64": "Zmlyc3QNCnNlY29uZA0KDQp0aGlyZA==",
+      "expectedIds": [
+        6005,
+        251,
+        107,
+        8556,
+        251,
+        107,
+        251,
+        107,
+        23362
+      ]
+    },
+    {
+      "id": "ws-only",
+      "note": "whitespace with no anchor text at all",
+      "inputBase64": "IAkKDQogIA==",
+      "expectedIds": [
+        236743,
+        255968,
+        107,
+        251,
+        107,
+        138
+      ]
+    },
+    {
+      "id": "code-js",
+      "note": "source syntax: arrows, braces, semicolons",
+      "inputBase64": "Y29uc3QgZiA9ICh4KSA9PiB7IHJldHVybiB4Py55ID8/IFsxLCAyXTsgfTs=",
+      "expectedIds": [
+        1987,
+        517,
+        578,
+        568,
+        236781,
+        236768,
+        1477,
+        642,
+        994,
+        1123,
+        12322,
+        236762,
+        18885,
+        870,
+        236770,
+        236764,
+        236743,
+        236778,
+        2312,
+        5097
+      ]
+    },
+    {
+      "id": "code-py",
+      "note": "indentation-significant source",
+      "inputBase64": "ZGVmIGYoeCk6CiAgICBpZiB4ID4gMDoKICAgICAgICByZXR1cm4gLXgKICAgIHJldHVybiB4",
+      "expectedIds": [
+        2063,
+        517,
+        236769,
+        236781,
+        1473,
+        107,
+        140,
+        584,
+        1123,
+        1890,
+        236743,
+        236771,
+        236787,
+        107,
+        144,
+        2060,
+        753,
+        236781,
+        107,
+        140,
+        2060,
+        1123
+      ]
+    },
+    {
+      "id": "code-shell",
+      "note": "shell metacharacters",
+      "inputBase64": "Z3JlcCAtcm4gImZvb3xiYXIiIC4gfCBhd2sgJ3twcmludCAkMX0nICYmIGVjaG8gJD8=",
+      "expectedIds": [
+        105527,
+        753,
+        50073,
+        623,
+        26537,
+        236909,
+        2230,
+        236775,
+        783,
+        1109,
+        33100,
+        43836,
+        1995,
+        609,
+        236770,
+        24768,
+        2732,
+        9263,
+        609,
+        236881
+      ]
+    },
+    {
+      "id": "json-compact",
+      "note": "compact JSON: no whitespace to hide a boundary",
+      "inputBase64": "eyJhIjoxLCJiIjpbdHJ1ZSxmYWxzZSxudWxsXSwiYyI6IngifQ==",
+      "expectedIds": [
+        14937,
+        236746,
+        1083,
+        236770,
+        2098,
+        236763,
+        89045,
+        3397,
+        236764,
+        4530,
+        236764,
+        6455,
+        84123,
+        236755,
+        12375,
+        236781,
+        25938
+      ]
+    },
+    {
+      "id": "json-pretty",
+      "note": "indented JSON",
+      "inputBase64": "ewogICJrZXkiOiAidmFsdWUiLAogICJuIjogLTEyLjVlMwp9",
+      "expectedIds": [
+        236782,
+        107,
+        138,
+        236775,
+        2478,
+        1083,
+        623,
+        2394,
+        827,
+        107,
+        138,
+        236775,
+        236749,
+        1083,
+        753,
+        236770,
+        236778,
+        236761,
+        236810,
+        236744,
+        236800,
+        107,
+        236783
+      ]
+    },
+    {
+      "id": "unicode-accents",
+      "note": "precomposed accented Latin",
+      "inputBase64": "Y2Fmw6kgbmHDr3ZlIMO8YmVyIMOFbmdzdHLDtm0=",
+      "expectedIds": [
+        123125,
+        236859,
+        120362,
+        8046,
+        44667,
+        829,
+        80406
+      ]
+    },
+    {
+      "id": "unicode-combining",
+      "note": "the same text as base + combining marks, which NFC would fold",
+      "inputBase64": "Y2FmZcyBIG5hacyIdmUgdcyIYmVyIEHMim5nc3Ryb8yIbQ==",
+      "expectedIds": [
+        101727,
+        238288,
+        81512,
+        241151,
+        560,
+        559,
+        241151,
+        793,
+        562,
+        245075,
+        829,
+        47712,
+        241151,
+        236757
+      ]
+    },
+    {
+      "id": "unicode-nbsp",
+      "note": "non-breaking space and thin space against ordinary space",
+      "inputBase64": "YcKgYuKAiWMgZA==",
+      "expectedIds": [
+        236746,
+        432,
+        398,
+        236763,
+        464,
+        366,
+        375,
+        236755,
+        513
+      ]
+    },
+    {
+      "id": "unicode-zwj",
+      "note": "zero-width joiner outside an emoji sequence",
+      "inputBase64": "QeKAjULigIxD",
+      "expectedIds": [
+        236776,
+        237243,
+        236799,
+        237218,
+        236780
+      ]
+    },
+    {
+      "id": "emoji-simple",
+      "note": "single-codepoint emoji",
+      "inputBase64": "c2hpcCBpdCDwn5qAIGRvbmUg4pyF",
+      "expectedIds": [
+        5976,
+        625,
+        236743,
+        242015,
+        3028,
+        113452
+      ]
+    },
+    {
+      "id": "emoji-zwj-family",
+      "note": "a ZWJ sequence: one grapheme, many codepoints, many tokens",
+      "inputBase64": "8J+RqeKAjfCfkanigI3wn5Gn4oCN8J+RpiBmYW1pbHk=",
+      "expectedIds": [
+        243767,
+        237243,
+        243767,
+        237243,
+        244814,
+        237243,
+        244990,
+        2523
+      ]
+    },
+    {
+      "id": "emoji-skin-tone",
+      "note": "emoji with a modifier",
+      "inputBase64": "8J+RjfCfj70gdGh1bWJz",
+      "expectedIds": [
+        240493,
+        242713,
+        49132
+      ]
+    },
+    {
+      "id": "script-cjk",
+      "note": "Han and kana",
+      "inputBase64": "5pel5pys6Kqe44Gu44OG44Kt44K544OI44Go44Gy44KJ44GM44Gq",
+      "expectedIds": [
+        94951,
+        236945,
+        95830,
+        237032,
+        239043,
+        155159,
+        237050
+      ]
+    },
+    {
+      "id": "script-cyrillic",
+      "note": "Cyrillic",
+      "inputBase64": "0J/RgNC+0LLQtdGA0LrQsCDRgtC+0LrQtdC90LjQt9Cw0YLQvtGA0LA=",
+      "expectedIds": [
+        24026,
+        144813,
+        3277,
+        5923,
+        948,
+        3086,
+        18862
+      ]
+    },
+    {
+      "id": "script-arabic",
+      "note": "right-to-left script",
+      "inputBase64": "2KfYrtiq2KjYp9ixINin2YTZhdit2YTZhCDYp9mE2YTYutmI2Yo=",
+      "expectedIds": [
+        193530,
+        22410,
+        25688,
+        217365,
+        4753,
+        237334,
+        9791
+      ]
+    },
+    {
+      "id": "script-devanagari",
+      "note": "Devanagari, where combining marks are structural",
+      "inputBase64": "4KSf4KWL4KSV4KSo4KS+4KSH4KSc4KS84KSwIOCkquCksOClgOCkleCljeCkt+Ckow==",
+      "expectedIds": [
+        236899,
+        43024,
+        1238,
+        236943,
+        61725,
+        55460
+      ]
+    },
+    {
+      "id": "num-digits",
+      "note": "digit grouping: tokenizers differ on 1/2/3-digit chunks",
+      "inputBase64": "MTIzNDU2Nzg5MA==",
+      "expectedIds": [
+        236770,
+        236778,
+        236800,
+        236812,
+        236810,
+        236825,
+        236832,
+        236828,
+        236819,
+        236771
+      ]
+    },
+    {
+      "id": "num-boundaries",
+      "note": "leading zeros, decimals, exponents, signs",
+      "inputBase64": "MDA3IDMuMTQxNTkgLTQyIDFlMTAgMC4wMDAx",
+      "expectedIds": [
+        236771,
+        236771,
+        236832,
+        236743,
+        236800,
+        236761,
+        236770,
+        236812,
+        236770,
+        236810,
+        236819,
+        753,
+        236812,
+        236778,
+        236743,
+        236770,
+        236744,
+        236770,
+        236771,
+        236743,
+        236771,
+        236761,
+        236771,
+        236771,
+        236771,
+        236770
+      ]
+    },
+    {
+      "id": "num-mixed",
+      "note": "digits fused to letters and symbols",
+      "inputBase64": "djIgeDg2XzY0IDEwMCUgJDEsMjM0LjU2IDIwMjYtMDgtMjA=",
+      "expectedIds": [
+        236766,
+        236778,
+        1123,
+        236828,
+        236825,
+        236779,
+        236825,
+        236812,
+        236743,
+        236770,
+        236771,
+        236771,
+        236908,
+        609,
+        236770,
+        236764,
+        236778,
+        236800,
+        236812,
+        236761,
+        236810,
+        236825,
+        236743,
+        236778,
+        236771,
+        236778,
+        236825,
+        236772,
+        236771,
+        236828,
+        236772,
+        236778,
+        236771
+      ]
+    },
+    {
+      "id": "merge-repeat",
+      "note": "a long run of one character, which merges collapse geometrically",
+      "inputBase64": "YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE=",
+      "expectedIds": [
+        128820,
+        128820,
+        128820,
+        128820
+      ]
+    },
+    {
+      "id": "merge-repeat-pair",
+      "note": "a repeated bigram",
+      "inputBase64": "YWJhYmFiYWJhYmFiYWJhYg==",
+      "expectedIds": [
+        111507,
+        111507,
+        111507,
+        111507
+      ]
+    },
+    {
+      "id": "merge-word-repeat",
+      "note": "a repeated word with separators",
+      "inputBase64": "dGVzdCB0ZXN0IHRlc3QgdGVzdCB0ZXN0",
+      "expectedIds": [
+        2181,
+        1594,
+        1594,
+        1594,
+        1594
+      ]
+    },
+    {
+      "id": "special-im-start",
+      "note": "a real chat special token literal",
+      "inputBase64": "PHxpbV9zdGFydHw+",
+      "expectedIds": [
+        236820,
+        236909,
+        548,
+        236779,
+        3041,
+        111038
+      ]
+    },
+    {
+      "id": "special-im-end",
+      "note": "the terminating special token literal",
+      "inputBase64": "PHxpbV9lbmR8Pg==",
+      "expectedIds": [
+        236820,
+        236909,
+        548,
+        236779,
+        643,
+        111038
+      ]
+    },
+    {
+      "id": "special-chatml-turn",
+      "note": "a full chat turn as the template renders it",
+      "inputBase64": "PHxpbV9zdGFydHw+c3lzdGVtCllvdSBhcmUgYSB0b29sLjx8aW1fZW5kfD4KPHxpbV9zdGFydHw+dXNlcgpIaTx8aW1fZW5kfD4KPHxpbV9zdGFydHw+YXNzaXN0YW50Cg==",
+      "expectedIds": [
+        236820,
+        236909,
+        548,
+        236779,
+        3041,
+        111038,
+        9731,
+        107,
+        3048,
+        659,
+        496,
+        5904,
+        21603,
+        236909,
+        548,
+        236779,
+        643,
+        111038,
+        107,
+        236820,
+        236909,
+        548,
+        236779,
+        3041,
+        111038,
+        2364,
+        107,
+        10979,
+        236820,
+        236909,
+        548,
+        236779,
+        643,
+        111038,
+        107,
+        236820,
+        236909,
+        548,
+        236779,
+        3041,
+        111038,
+        111457,
+        107
+      ]
+    },
+    {
+      "id": "special-lookalike",
+      "note": "a special-token lookalike that is NOT in the vocabulary",
+      "inputBase64": "PHxub3RfYV9yZWFsX3NwZWNpYWxfdG9rZW58Pg==",
+      "expectedIds": [
+        236820,
+        236909,
+        2217,
+        236779,
+        236746,
+        236779,
+        9238,
+        236779,
+        18146,
+        236779,
+        1114,
+        111038
+      ]
+    },
+    {
+      "id": "special-partial",
+      "note": "a truncated special-token literal, which must not match",
+      "inputBase64": "PHxpbV9zdGFy",
+      "expectedIds": [
+        236820,
+        236909,
+        548,
+        236779,
+        7991
+      ]
+    },
+    {
+      "id": "special-adjacent",
+      "note": "a special token with no whitespace around it",
+      "inputBase64": "YmVmb3JlPHxpbV9lbmR8PmFmdGVy",
+      "expectedIds": [
+        15849,
+        236820,
+        236909,
+        548,
+        236779,
+        643,
+        111038,
+        9900
+      ]
+    },
+    {
+      "id": "boundary-mixed",
+      "note": "script, digit and punctuation boundaries with no spaces",
+      "inputBase64": "YWJj5pel5pys6KqeMTIzIUAj44Gn44GZNDU2",
+      "expectedIds": [
+        28180,
+        94951,
+        236770,
+        236778,
+        236800,
+        236888,
+        236940,
+        236865,
+        3652,
+        236812,
+        236810,
+        236825
+      ]
+    },
+    {
+      "id": "boundary-empty-ish",
+      "note": "a single space, the smallest input with a boundary",
+      "inputBase64": "IA==",
+      "expectedIds": [
+        236743
+      ]
+    }
+  ],
+  "decode": [
+    {
+      "id": "vocab-0",
+      "note": "added / control token, where a substituted vocabulary differs first",
+      "tokenId": 0,
+      "expectedBytesBase64": "PHBhZD4="
+    },
+    {
+      "id": "vocab-1",
+      "note": "added / control token, where a substituted vocabulary differs first",
+      "tokenId": 1,
+      "expectedBytesBase64": "PGVvcz4="
+    },
+    {
+      "id": "vocab-2",
+      "note": "added / control token, where a substituted vocabulary differs first",
+      "tokenId": 2,
+      "expectedBytesBase64": "PGJvcz4="
+    },
+    {
+      "id": "vocab-3",
+      "note": "added / control token, where a substituted vocabulary differs first",
+      "tokenId": 3,
+      "expectedBytesBase64": "PHVuaz4="
+    },
+    {
+      "id": "vocab-4",
+      "note": "added / control token, where a substituted vocabulary differs first",
+      "tokenId": 4,
+      "expectedBytesBase64": "PG1hc2s+"
+    },
+    {
+      "id": "vocab-46",
+      "note": "added / control token, where a substituted vocabulary differs first",
+      "tokenId": 46,
+      "expectedBytesBase64": "PHx0b29sPg=="
+    },
+    {
+      "id": "vocab-47",
+      "note": "added / control token, where a substituted vocabulary differs first",
+      "tokenId": 47,
+      "expectedBytesBase64": "PHRvb2x8Pg=="
+    },
+    {
+      "id": "vocab-48",
+      "note": "added / control token, where a substituted vocabulary differs first",
+      "tokenId": 48,
+      "expectedBytesBase64": "PHx0b29sX2NhbGw+"
+    },
+    {
+      "id": "vocab-49",
+      "note": "added / control token, where a substituted vocabulary differs first",
+      "tokenId": 49,
+      "expectedBytesBase64": "PHRvb2xfY2FsbHw+"
+    },
+    {
+      "id": "vocab-50",
+      "note": "added / control token, where a substituted vocabulary differs first",
+      "tokenId": 50,
+      "expectedBytesBase64": "PHx0b29sX3Jlc3BvbnNlPg=="
+    },
+    {
+      "id": "vocab-51",
+      "note": "added / control token, where a substituted vocabulary differs first",
+      "tokenId": 51,
+      "expectedBytesBase64": "PHRvb2xfcmVzcG9uc2V8Pg=="
+    },
+    {
+      "id": "vocab-52",
+      "note": "added / control token, where a substituted vocabulary differs first",
+      "tokenId": 52,
+      "expectedBytesBase64": "PHwifD4="
+    },
+    {
+      "id": "vocab-98",
+      "note": "added / control token, where a substituted vocabulary differs first",
+      "tokenId": 98,
+      "expectedBytesBase64": "PHx0aGlua3w+"
+    },
+    {
+      "id": "vocab-100",
+      "note": "added / control token, where a substituted vocabulary differs first",
+      "tokenId": 100,
+      "expectedBytesBase64": "PHxjaGFubmVsPg=="
+    },
+    {
+      "id": "vocab-101",
+      "note": "added / control token, where a substituted vocabulary differs first",
+      "tokenId": 101,
+      "expectedBytesBase64": "PGNoYW5uZWx8Pg=="
+    },
+    {
+      "id": "vocab-105",
+      "note": "added / control token, where a substituted vocabulary differs first",
+      "tokenId": 105,
+      "expectedBytesBase64": "PHx0dXJuPg=="
+    },
+    {
+      "id": "vocab-106",
+      "note": "added / control token, where a substituted vocabulary differs first",
+      "tokenId": 106,
+      "expectedBytesBase64": "PHR1cm58Pg=="
+    },
+    {
+      "id": "vocab-13107",
+      "note": "vocabulary entry sampled deterministically from the token table",
+      "tokenId": 13107,
+      "expectedBytesBase64": "bmM="
+    },
+    {
+      "id": "vocab-39321",
+      "note": "vocabulary entry sampled deterministically from the token table",
+      "tokenId": 39321,
+      "expectedBytesBase64": "RklHVVJF"
+    },
+    {
+      "id": "vocab-91749",
+      "note": "vocabulary entry sampled deterministically from the token table",
+      "tokenId": 91749,
+      "expectedBytesBase64": "cm9uaXF1ZQ=="
+    },
+    {
+      "id": "vocab-157284",
+      "note": "vocabulary entry sampled deterministically from the token table",
+      "tokenId": 157284,
+      "expectedBytesBase64": "b2lkZW4="
+    },
+    {
+      "id": "vocab-235926",
+      "note": "vocabulary entry sampled deterministically from the token table",
+      "tokenId": 235926,
+      "expectedBytesBase64": "Z3VscGZpbGU="
+    },
+    {
+      "id": "vocab-255999",
+      "note": "added / control token, where a substituted vocabulary differs first",
+      "tokenId": 255999,
+      "expectedBytesBase64": "PHxpbWFnZT4="
+    },
+    {
+      "id": "vocab-256000",
+      "note": "added / control token, where a substituted vocabulary differs first",
+      "tokenId": 256000,
+      "expectedBytesBase64": "PHxhdWRpbz4="
+    },
+    {
+      "id": "vocab-258880",
+      "note": "added / control token, where a substituted vocabulary differs first",
+      "tokenId": 258880,
+      "expectedBytesBase64": "PHxpbWFnZXw+"
+    },
+    {
+      "id": "vocab-258881",
+      "note": "added / control token, where a substituted vocabulary differs first",
+      "tokenId": 258881,
+      "expectedBytesBase64": "PHxhdWRpb3w+"
+    },
+    {
+      "id": "vocab-258882",
+      "note": "added / control token, where a substituted vocabulary differs first",
+      "tokenId": 258882,
+      "expectedBytesBase64": "PGltYWdlfD4="
+    },
+    {
+      "id": "vocab-258883",
+      "note": "added / control token, where a substituted vocabulary differs first",
+      "tokenId": 258883,
+      "expectedBytesBase64": "PGF1ZGlvfD4="
+    },
+    {
+      "id": "vocab-258884",
+      "note": "added / control token, where a substituted vocabulary differs first",
+      "tokenId": 258884,
+      "expectedBytesBase64": "PHx2aWRlb3w+"
+    },
+    {
+      "id": "vocab-262140",
+      "note": "vocabulary entry sampled deterministically from the token table",
+      "tokenId": 262140,
+      "expectedBytesBase64": "PHVudXNlZDYyMjM+"
+    },
+    {
+      "id": "vocab-262142",
+      "note": "vocabulary entry sampled deterministically from the token table",
+      "tokenId": 262142,
+      "expectedBytesBase64": "PHVudXNlZDYyMjU+"
+    },
+    {
+      "id": "vocab-262143",
+      "note": "vocabulary entry sampled deterministically from the token table",
+      "tokenId": 262143,
+      "expectedBytesBase64": "PHVudXNlZDYyMjY+"
+    }
+  ],
+  "payloadHash": "sha256:61c193f8b16b75470d9cd8e5df4a8da84b855fd59e58b896c29951faf0d27f77",
+  "generatedAt": "2026-08-21T02:47:09.522Z",
+  "coverage": [
+    "ascii words and punctuation",
+    "leading/trailing/repeated whitespace",
+    "newlines, tabs, CRLF",
+    "source-code syntax",
+    "JSON",
+    "combining marks and normalisation-sensitive text",
+    "emoji including ZWJ sequences and modifiers",
+    "CJK, Cyrillic, Arabic, Devanagari",
+    "digit grouping and numeric boundaries",
+    "merge-sensitive repeated substrings",
+    "chat special tokens, lookalikes and partials",
+    "added-token region of the vocabulary"
+  ],
+  "note": "Behavioural canary, both directions. Not a proof of tokenizer equivalence: it establishes that these inputs produce these ids and these ids produce these bytes. 14 sampled vocabulary entries were excluded: UNUSED padding, which the runtime renders as the empty string, and byte fragments that are not valid UTF-8 alone."
+}
