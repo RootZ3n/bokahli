@@ -131,6 +131,27 @@ export interface UnmetRequirement {
 }
 
 /**
+ * What a `LOCAL_MODEL_SWAP_REQUIRED` escalation is telling the caller.
+ *
+ * Measured, not estimated. `coldLoadSeconds` comes from the artifact's
+ * operational profile, which is filled in by the placement campaign; it is null
+ * for an artifact nobody has timed, and null means unknown rather than fast.
+ */
+export interface SwapRequirement {
+  /** The artifact currently loaded, or null when nothing is. */
+  readonly residentModelId: string | null;
+  /** Why the resident one cannot serve this request. Empty when nothing is loaded. */
+  readonly residentUnmet: readonly UnmetRequirement[];
+  /** Artifacts that would satisfy it, best first, with what loading one costs. */
+  readonly candidates: readonly {
+    readonly modelId: string;
+    readonly digest: string;
+    readonly coldLoadSeconds: number | null;
+    readonly vramMiB: number | null;
+  }[];
+}
+
+/**
  * ESCALATE — no qualified local route is suitable.
  *
  * Bokahli emits this and stops. Where an escalated request goes next is the
@@ -153,6 +174,24 @@ export type EscalateReason =
    * default: absence of evidence produces exactly this, never a pass.
    */
   | 'MODEL_NOT_QUALIFIED_FOR_TASK'
+  /**
+   * Every requirement is met by an installed artifact, and it is not the one
+   * loaded.
+   *
+   * Bokahli serves one model at a time and does not swap models: that is an
+   * operator action through `bokahli-runtime.service`, and giving the request
+   * path authority to unload the resident model would let one caller's routing
+   * preference evict another caller's working deployment mid-conversation.
+   *
+   * So this is the honest answer to "AUTO found a fit, and cannot reach it". It
+   * is deliberately distinct from `REQUIREMENTS_UNMET`, which means nothing
+   * installed can serve the request at all: that difference is the difference
+   * between "give up" and "load this and retry", and a caller cannot act on it
+   * unless the two are told apart. It carries the resident artifact, the
+   * artifacts that would satisfy the request, and each one's measured cold-load
+   * cost, so the decision to swap is made against a number rather than a guess.
+   */
+  | 'LOCAL_MODEL_SWAP_REQUIRED'
   /**
    * The local runtime is not answering, so no served identity can be attested.
    *
@@ -257,6 +296,11 @@ export interface Escalation {
    * capability or qualification, which retrying cannot change.
    */
   readonly retryableLocal: boolean;
+  /**
+   * Present only on `LOCAL_MODEL_SWAP_REQUIRED`. What is loaded, why it does not
+   * fit, what would, and what loading it costs.
+   */
+  readonly swap?: SwapRequirement;
 }
 
 /**

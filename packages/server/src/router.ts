@@ -299,8 +299,15 @@ async function decideProfile(
     );
   }
 
-  const chosen = pickBest(eligible, ctx, taskClass, assessments);
-  const attestation = await ctx.backend.attest(chosen);
+  // One attestation, of the top-ranked eligible artifact. Residency is read from
+  // it, and a second round-trip happens only when the resident artifact is not
+  // the one ranking would have named.
+  const ranked = pickBest(eligible, ctx, taskClass, assessments);
+  const probe = await ctx.backend.attest(ranked);
+  const pick = preferResident('PROFILE', ranked, probe, candidates, eligible, assessments);
+  if ('escalation' in pick) return pick.escalation;
+  const chosen = pick.chosen;
+  const attestation = pick.reuseAttestation ? probe : await ctx.backend.attest(chosen);
   if (!attestation.reachable) {
     return runtimeUnhealthy('PROFILE', attestation.reasons, assessments);
   }
@@ -397,6 +404,92 @@ function evaluateProfile(
   return unmet;
 }
 
+
+/**
+ * Prefer what is already loaded, and say so plainly when nothing loaded fits.
+ *
+ * Bokahli serves one model at a time and cannot swap: starting a different
+ * artifact is an operator action through `bokahli-runtime.service`. Before this
+ * existed, AUTO and PROFILE ranked the catalog, picked a winner, and then failed
+ * `attest()` when the winner was not the resident artifact — a correct refusal
+ * carrying a misleading reason, because the artifact met every stated
+ * requirement and was simply not loaded. That is a different thing from
+ * "nothing installed can serve this", and the difference is what tells a caller
+ * whether to fall back to a remote provider or ask for a swap.
+ *
+ * It takes the attestation the caller already had to fetch rather than probing
+ * again. The first version made its own `attest()` call, which doubled the
+ * backend round-trips on every routed request; the extra socket was enough to
+ * stop `node --test` exiting after a suite that passed, which is a fair warning
+ * about a request path that quietly does twice the I/O it needs.
+ *
+ * `attestation.alias` is what the backend says it is serving, so residency is
+ * read from the same observation that decides identity — not from a second one
+ * that could disagree with it.
+ *
+ * It reports and never acts. One caller's routing preference must not evict
+ * another caller's working deployment, so there is no path here that unloads
+ * anything.
+ */
+function preferResident(
+  mode: 'AUTO' | 'PROFILE',
+  ranked: InternalArtifact,
+  attestation: Attestation,
+  candidates: readonly InternalArtifact[],
+  eligible: InternalArtifact[],
+  assessments: CandidateAssessment[],
+): { chosen: InternalArtifact; reuseAttestation: boolean } | { escalation: RouteOutcome } {
+  const residentAlias = attestation.alias ?? null;
+  const resident = residentAlias === null
+    ? null
+    : candidates.find((a) => a.runtimeAlias === residentAlias) ?? null;
+  const residentEligible = resident !== null && eligible.some((a) => a.modelId === resident.modelId);
+
+  if (residentEligible) {
+    const chosen = resident as InternalArtifact;
+    return { chosen, reuseAttestation: chosen.modelId === ranked.modelId };
+  }
+
+  // An unreachable runtime is a different statement with its own reason. Do not
+  // relabel an outage as a swap.
+  if (!attestation.reachable) {
+    return { escalation: runtimeUnhealthy(mode, attestation.reasons, assessments) };
+  }
+
+  const ordered = [ranked, ...eligible.filter((a) => a.modelId !== ranked.modelId)];
+  const residentAssessment = resident === null
+    ? null
+    : assessments.find((c) => c.modelId === resident.modelId) ?? null;
+
+  const base = escalate(
+    mode,
+    'LOCAL_MODEL_SWAP_REQUIRED',
+    resident === null
+      ? `no catalogued artifact is loaded; ${ordered.length} installed artifact(s) satisfy this ` +
+        'request and one must be started before it can be served.'
+      : `the loaded artifact "${resident.modelId}" does not satisfy this request, and ` +
+        `${ordered.length} installed artifact(s) do. Bokahli serves one model at a time and does ` +
+        "not unload the resident model on a request's behalf.",
+    residentAssessment?.unmet ?? [],
+    assessments,
+  );
+  return {
+    escalation: {
+      ...base,
+      swap: {
+        residentModelId: resident?.modelId ?? null,
+        residentUnmet: residentAssessment?.unmet ?? [],
+        candidates: ordered.map((a) => ({
+          modelId: a.modelId,
+          digest: a.digest,
+          coldLoadSeconds: a.operational.coldLoadSeconds ?? null,
+          vramMiB: a.operational.vramMiB ?? null,
+        })),
+      },
+    } as RouteOutcome,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // AUTO
 // ---------------------------------------------------------------------------
@@ -459,8 +552,15 @@ async function decideAuto(
     );
   }
 
-  const chosen = pickBest(eligible, ctx, taskClass, assessments);
-  const attestation = await ctx.backend.attest(chosen);
+  // One attestation, of the top-ranked eligible artifact. Residency is read from
+  // it, and a second round-trip happens only when the resident artifact is not
+  // the one ranking would have named.
+  const ranked = pickBest(eligible, ctx, taskClass, assessments);
+  const probe = await ctx.backend.attest(ranked);
+  const pick = preferResident('AUTO', ranked, probe, candidates, eligible, assessments);
+  if ('escalation' in pick) return pick.escalation;
+  const chosen = pick.chosen;
+  const attestation = pick.reuseAttestation ? probe : await ctx.backend.attest(chosen);
   if (!attestation.reachable) {
     return runtimeUnhealthy('AUTO', attestation.reasons, assessments);
   }

@@ -50,8 +50,13 @@
       "operational": {
         "servedContextTokens": 32768,
         "maxConcurrentRequests": 1,
-        "measuredAt": "2026-08-20T11:05:00Z",
-        "measurementNote": "Context tier chosen from measurement, not from the model's 262144 train context. At 32768 with --parallel 1: 2418 MiB VRAM steady / 2476 MiB peak, 2.03 s cold load, 572.6 tok/s prefill and 52.3 tok/s decode at 24357-token fill. 65536 was also measured stable (3090 MiB, 552.4 prefill, 48.9 decode) but doubles worst-case prefill wall time to 88.5 s. See docs/phase1/measurements/context-tiers.md"
+        "measuredAt": "2026-08-21T13:15:38.117Z",
+        "measurementNote": "Measured exclusively (one model resident) on the fastest stable profile: ngl999 cpu-moe=8. Prefill and decode are llama.cpp's own timings by way of Bokahli telemetry over 3 runs, each with a distinct prompt prefix so nothing is served from KV cache. Cold load is the wall time of a service start, which returns only after /health answers and GPU placement is asserted.",
+        "coldLoadSeconds": 2.49,
+        "vramMiB": 10846,
+        "hostRssGiB": 4.19,
+        "decodeTokensPerSecond": 100,
+        "prefillTokensPerSecond": 1654.5
       }
     },
     {
@@ -87,7 +92,7 @@
         "license": "apache-2.0",
         "quantMethod": "importance-matrix (imatrix)",
         "publishedSha256": "c385920c6b956dc8c69c1ec1ebd750615c483734c949ef1f85d916df6cd9752d",
-        "producerKldSameTopP": "89.764 \u00b1 0.079 %"
+        "producerKldSameTopP": "89.764 ± 0.079 %"
       },
       "capabilities": {
         "chat": true,
@@ -108,8 +113,13 @@
       "operational": {
         "servedContextTokens": 32768,
         "maxConcurrentRequests": 1,
-        "measuredAt": null,
-        "measurementNote": "Configuration, not measurement. servedContextTokens and maxConcurrentRequests are what the runtime is started with; measuredAt is null because nothing about this artifact's behaviour under that configuration has been measured yet."
+        "measuredAt": "2026-08-21T13:17:11.902Z",
+        "measurementNote": "Measured exclusively (one model resident) on the fastest stable profile: ngl999 cpu-moe=16. Prefill and decode are llama.cpp's own timings by way of Bokahli telemetry over 3 runs, each with a distinct prompt prefix so nothing is served from KV cache. Cold load is the wall time of a service start, which returns only after /health answers and GPU placement is asserted.",
+        "coldLoadSeconds": 2.51,
+        "vramMiB": 10118,
+        "hostRssGiB": 7.27,
+        "decodeTokensPerSecond": 73.6,
+        "prefillTokensPerSecond": 1168.5
       }
     },
     {
@@ -165,8 +175,13 @@
       "operational": {
         "servedContextTokens": 32768,
         "maxConcurrentRequests": 1,
-        "measuredAt": null,
-        "measurementNote": "Configuration, not measurement. servedContextTokens and maxConcurrentRequests are what the runtime is started with; measuredAt is null because nothing about this artifact's behaviour under that configuration has been measured yet."
+        "measuredAt": "2026-08-21T13:18:08.171Z",
+        "measurementNote": "Measured exclusively (one model resident) on the fastest stable profile: ngl999 cpu-moe=16. Prefill and decode are llama.cpp's own timings by way of Bokahli telemetry over 3 runs, each with a distinct prompt prefix so nothing is served from KV cache. Cold load is the wall time of a service start, which returns only after /health answers and GPU placement is asserted.",
+        "coldLoadSeconds": 7.54,
+        "vramMiB": 10026,
+        "hostRssGiB": 11.6,
+        "decodeTokensPerSecond": 50.1,
+        "prefillTokensPerSecond": 899.9
       }
     },
     {
@@ -222,8 +237,13 @@
       "operational": {
         "servedContextTokens": 32768,
         "maxConcurrentRequests": 1,
-        "measuredAt": null,
-        "measurementNote": "Configuration, not measurement. servedContextTokens and maxConcurrentRequests are what the runtime is started with; measuredAt is null because nothing about this artifact's behaviour under that configuration has been measured yet."
+        "measuredAt": "2026-08-21T13:12:06.345Z",
+        "measurementNote": "Measured exclusively (one model resident) on the fastest stable profile: ngl999 FULL OFFLOAD ctx32768. Prefill and decode are llama.cpp's own timings by way of Bokahli telemetry over 3 runs, each with a distinct prompt prefix so nothing is served from KV cache. Cold load is the wall time of a service start, which returns only after /health answers and GPU placement is asserted.",
+        "coldLoadSeconds": 5.64,
+        "vramMiB": 11082,
+        "hostRssGiB": 4.17,
+        "decodeTokensPerSecond": 39.1,
+        "prefillTokensPerSecond": 2381.6
       }
     },
     {
@@ -280,8 +300,13 @@
       "operational": {
         "servedContextTokens": 32768,
         "maxConcurrentRequests": 1,
-        "measuredAt": null,
-        "measurementNote": "Configuration, not measurement. Nothing about this artifact's behaviour under it has been measured yet."
+        "measuredAt": "2026-08-21T15:58:56.030Z",
+        "measurementNote": "Measured exclusively (one model resident) on the fastest stable profile: ngl999 FULL OFFLOAD ctx32768. Prefill and decode are llama.cpp's own timings by way of Bokahli telemetry over 3 runs, each with a distinct prompt prefix so nothing is served from KV cache. Cold load is the wall time of a service start, which returns only after /health answers and GPU placement is asserted.",
+        "coldLoadSeconds": 2.45,
+        "vramMiB": 7918,
+        "hostRssGiB": 2.54,
+        "decodeTokensPerSecond": 57.3,
+        "prefillTokensPerSecond": 3495.7
       }
     }
   ]

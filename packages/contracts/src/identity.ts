@@ -104,6 +104,18 @@ export interface CatalogEntry {
     readonly servedContextTokens: number;
     readonly maxConcurrentRequests: number;
     readonly measuredAt: string | null;
+    /**
+     * What loading this artifact costs, measured.
+     *
+     * Null means nobody has timed it, and null means *unknown* rather than
+     * cheap. A `LOCAL_MODEL_SWAP_REQUIRED` escalation carries these so the
+     * decision to swap is made against a number instead of a guess.
+     */
+    readonly coldLoadSeconds?: number | null;
+    readonly vramMiB?: number | null;
+    readonly hostRssGiB?: number | null;
+    readonly decodeTokensPerSecond?: number | null;
+    readonly prefillTokensPerSecond?: number | null;
   };
 }
 
