@@ -1,0 +1,56 @@
+{
+  "generatorVersion": "bokahli-velum-sync-1",
+  "remote": "git@github.com:RootZ3n/velum.git",
+  "sourceBranch": "feature/a32-span-pike-v1",
+  "sourceCommit": "5f6738b1e9a6b6ae4e4d54c269f460323bb72254",
+  "requireCommit": true,
+  "sourcePrefix": "src",
+  "registryVersion": "abaiya-velum-mvp-1",
+  "detectorContractVersion": "1.0.0",
+  "registryGeneratorVersion": "velum.a32-registry-generator/2",
+  "patternCount": 45,
+  "correctionCount": 2,
+  "registryPayloadSha256": "ecb27b1c9bd52d03964c099328ce78bb4d96699f8a7c90196be548a104308f0d",
+  "vendorSetSha256": "67fea7e018aa10b6a33f98058ffbbed363c13330e0b6653348d9c5f581274018",
+  "files": {
+    "core/base64.ts": {
+      "sha256": "bb3cc80a5df7ec8ac36b5d67219ac362e47ba75c20db0c66b81f35251f51a541"
+    },
+    "core/bytes.ts": {
+      "sha256": "a6d189a2bacbc8a9fcdcd94115f936d7d11a8dd062b0100aa6f35319926c8e7d"
+    },
+    "core/pike/index.ts": {
+      "sha256": "e4e6ee852ed7422e7ffb37725030a50fd75812a54de3a69755a4b2426005d37c"
+    },
+    "core/pike/program.ts": {
+      "sha256": "484a1aa9ac71545d0c53502c122b26d172b7d928c7dd402884918ebc3cc1931e"
+    },
+    "core/pike/syntax.ts": {
+      "sha256": "f525573213dc961dcc5e510017011c52b2e524b05e4367eafbe6939b2e9f9169"
+    },
+    "core/pike/vm.ts": {
+      "sha256": "c8a7657ae84930086b9a756d13d4f4e8b5449ce31a8e1902093c6d5c426949c1"
+    },
+    "core/a32/categories.ts": {
+      "sha256": "c9fa0609e69981e8e146be27993993646c7657b0b5c184cbf1ac934d31c237ed"
+    },
+    "core/a32/detect.ts": {
+      "sha256": "3a4332e225038d7e09980ae8637a1daf939fe0e340f6fd15584c1de0f601c9f5"
+    },
+    "core/a32/fence.ts": {
+      "sha256": "df4c94c1d7932c178d2de800e799da384a26e5675c0f59c1149e7e7df04ae8ef"
+    },
+    "core/a32/index.ts": {
+      "sha256": "565f03fb085cdf4d6abde68d604d34372ecc0056ed01a9d15530a7fdbe7384fc"
+    },
+    "core/a32/inspect.ts": {
+      "sha256": "d2f411f85068095bf2f87bbdc88177080c6f950bc394a744afbe9800664bf713"
+    },
+    "core/a32/normalize.ts": {
+      "sha256": "864620ebc13073b856f252ed0125cdf4f0aaec69c3d91f7c66d573d61424c80a"
+    },
+    "core/a32/registry.ts": {
+      "sha256": "8cc29ff7a826211c30f3e75e4c226991b81715d75aaad460ea7c370414210403"
+    }
+  }
+}

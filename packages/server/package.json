@@ -8,6 +8,22 @@
     ".": {
       "types": "./dist/main.d.ts",
       "default": "./dist/main.js"
+    },
+    "./trust": {
+      "types": "./dist/trust.d.ts",
+      "default": "./dist/trust.js"
+    },
+    "./velum-capacity": {
+      "types": "./dist/velum-capacity.d.ts",
+      "default": "./dist/velum-capacity.js"
+    },
+    "./scan-pool": {
+      "types": "./dist/scan-pool.d.ts",
+      "default": "./dist/scan-pool.js"
+    },
+    "./scan-protocol": {
+      "types": "./dist/scan-protocol.d.ts",
+      "default": "./dist/scan-protocol.js"
     }
   },
   "dependencies": {
@@ -15,6 +31,7 @@
     "@bokahli/catalog": "2.0.0-phase1",
     "@bokahli/qualification": "2.0.0-phase2a",
     "@bokahli/tasks": "2.0.0-phase2a",
-    "@bokahli/runtime": "2.0.0-phase1"
+    "@bokahli/runtime": "2.0.0-phase1",
+    "@bokahli/velum": "2.0.0-phase1"
   }
 }

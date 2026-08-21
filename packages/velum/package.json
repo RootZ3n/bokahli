@@ -1,5 +1,5 @@
 {
-  "name": "@bokahli/runtime",
+  "name": "@bokahli/velum",
   "version": "2.0.0-phase1",
   "private": true,
   "type": "module",
@@ -9,11 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./base64": {
+      "types": "./dist/base64.d.ts",
+      "default": "./dist/base64.js"
     }
-  },
-  "dependencies": {
-    "@bokahli/contracts": "2.0.0-phase1",
-    "@bokahli/catalog": "2.0.0-phase1",
-    "@bokahli/velum": "2.0.0-phase1"
   }
 }

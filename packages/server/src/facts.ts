@@ -147,6 +147,16 @@ export function bindingDigest(binding: AttestedIdentityBinding): ArtifactDigest 
 export interface FactsSource {
   /** The instance id observed most recently, for post-response correlation. */
   currentInstanceId?(): Promise<string | null>;
+  /**
+   * Why this machine cannot be trusted to convert bytes, or null.
+   *
+   * Set by the tokenizer canary when the platform's base64 encoder disagrees
+   * with the audited one, or when a pinned encoding is not canonical. It is a
+   * fact about the host, so it is reported once rather than folded into any
+   * artifact's qualification facts, and the request path refuses on it instead
+   * of serving a response whose provenance would be quietly degraded.
+   */
+  hostIntegrityFault?(): string | null;
   collect(
     artifact: InternalArtifact,
     attested: boolean,
@@ -229,6 +239,19 @@ interface ProbeCacheEntry {
 
 export class QualificationFactsProvider implements FactsSource {
   readonly #opts: FactsProviderOptions;
+  /**
+   * Sticky once set.
+   *
+   * A machine that miscomputed a conversion once is a machine whose results
+   * cannot be trusted, and the fault is intermittent — clearing it on the next
+   * clean probe would mean the deployment kept serving between faults and only
+   * refused during them, which is the worst of both.
+   */
+  #hostIntegrityFault: string | null = null;
+
+  hostIntegrityFault(): string | null {
+    return this.#hostIntegrityFault;
+  }
   readonly #now: () => Date;
   readonly #artifactCache = new Map<string, Promise<ArtifactFactsCache>>();
   /**
@@ -449,6 +472,12 @@ export class QualificationFactsProvider implements FactsSource {
       // process, and neither changes without the instance changing. Failures
       // expire, so a transient outage cannot leave the deployment unproven for
       // ever with nothing retrying.
+      // A host that miscomputes conversions has told us nothing about the
+      // runtime, so it is remembered as a host fault rather than as a failed
+      // probe that would expire and be retried into the same wrong answer.
+      if (proof.canary?.hostIntegrityFault != null) {
+        this.#hostIntegrityFault = proof.canary.hostIntegrityFault;
+      }
       const verified =
         proof.matches &&
         proof.canary?.encodeCanaryVerified === true &&

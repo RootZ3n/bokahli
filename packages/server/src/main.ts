@@ -1,4 +1,6 @@
 import { createServer, type Server } from 'node:http';
+import { ScanCapacity } from './velum-capacity.js';
+import { ScanPool } from './scan-pool.js';
 import { readFile } from 'node:fs/promises';
 import { Catalog } from '@bokahli/catalog';
 import type { TokenizerCanarySuite } from '@bokahli/contracts';
@@ -190,8 +192,20 @@ async function main(): Promise<void> {
     canarySuite: (a) => canaries.get(a.digest) ?? null,
   });
 
+  // Started before the server binds, so the first request meets a pool that has
+  // already handshaken rather than one that is still deciding whether its
+  // workers agree with it about the registry.
+  const scanPool = new ScanPool({
+    workers: config.velumWorkers,
+    jobTimeoutMs: config.velumJobTimeoutMs,
+  });
+
   const deps: AppDeps = {
     config, token, catalog, backend, qualification, queue, gpu, telemetry, facts, startedAt,
+    // Per-request ceiling is the HTTP body limit: two numbers that could drift
+    // apart would let one of them be the real limit and the other a comment.
+    scanCapacity: new ScanCapacity(config.velumInFlightBytes, config.maxRequestBytes),
+    scanPool,
   };
   const handler = createHandler(deps);
   const servers: Server[] = [];
@@ -222,8 +236,14 @@ async function main(): Promise<void> {
     for (const s of servers) {
       s.close(() => {
         if (--remaining === 0) {
-          telemetry.log('info', 'shutdown.complete', {});
-          process.exit(0);
+          // Listeners are closed, so no new scan can be dispatched. In-flight
+          // ones settle as a typed worker-lost escalation rather than hanging,
+          // which is what lets the process exit instead of waiting on promises
+          // nobody will resolve.
+          void scanPool.close().then(() => {
+            telemetry.log('info', 'shutdown.complete', { scanWorkers: 0 });
+            process.exit(0);
+          });
         }
       });
     }

@@ -606,6 +606,8 @@ import { AdmissionQueue } from '@bokahli/runtime';
 import { QualificationGate } from '../dist/qualification.js';
 import { unavailableFacts } from '../dist/facts.js';
 import { createHandler } from '../dist/http.js';
+import { ScanCapacity } from '@bokahli/server/velum-capacity';
+import { ScanPool } from '@bokahli/server/scan-pool';
 
 const S_TOKEN = 'a'.repeat(48);
 const S_MODEL = 'strict-model.q2-k';
@@ -683,6 +685,7 @@ async function strictServer(factsOpts = {}, completionInstance = 'inst-1', upstr
   });
   await new Promise((r) => upstream.listen(0, '127.0.0.1', r));
 
+  const scanPool = new ScanPool({ workers: 1, jobTimeoutMs: 20_000 });
   const deps = {
     config: {
       maxRequestBytes: 1_048_576, publicDir: '/nonexistent', gpuForeignHolderThresholdMiB: 512,
@@ -708,6 +711,12 @@ async function strictServer(factsOpts = {}, completionInstance = 'inst-1', upstr
       collect: async (a) => strictFacts(a, factsOpts),
       currentInstanceId: async () => completionInstance,
     },
+    // Required, not optional: a budget that a caller can omit is a budget that
+    // is unenforced wherever somebody forgot it.
+    scanCapacity: new ScanCapacity(8 * 1024 * 1024, 1024 * 1024),
+    // A real pool with one worker: the request path is the thing under test,
+    // and a stub would test a path production does not take.
+    scanPool,
     startedAt: new Date().toISOString(),
   };
   const api = createServer(createHandler(deps));
@@ -725,6 +734,8 @@ async function strictServer(factsOpts = {}, completionInstance = 'inst-1', upstr
     close: async () => {
       await new Promise((r) => api.close(r));
       await new Promise((r) => upstream.close(r));
+      // Workers are threads; a harness that starts them stops them.
+      await scanPool.close();
     },
   };
 }

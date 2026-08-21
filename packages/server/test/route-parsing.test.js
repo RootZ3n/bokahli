@@ -18,6 +18,8 @@ import { AdmissionQueue, LlamaBackend } from '@bokahli/runtime';
 import { unavailableFacts } from '../dist/facts.js';
 import { createHandler } from '../dist/http.js';
 import { QualificationGate } from '../dist/qualification.js';
+import { ScanCapacity } from '@bokahli/server/velum-capacity';
+import { ScanPool } from '@bokahli/server/scan-pool';
 
 /**
  * A facts stub for a deployment that *was* reached.
@@ -130,6 +132,12 @@ before(async () => {
       collect: async (a) => attestedFacts(a),
       currentInstanceId: async () => TEST_INSTANCE,
     },
+    // Required, not optional: a budget that a caller can omit is a budget that
+    // is unenforced wherever somebody forgot it.
+    scanCapacity: new ScanCapacity(8 * 1024 * 1024, 1024 * 1024),
+    // A real pool with one worker: the request path is the thing under test,
+    // and a stub would test a path production does not take.
+    scanPool: new ScanPool({ workers: 1, jobTimeoutMs: 20_000 }),
     startedAt: new Date().toISOString(),
   };
   api = createServer(createHandler(deps));

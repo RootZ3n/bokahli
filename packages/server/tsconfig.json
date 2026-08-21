@@ -22,6 +22,9 @@
     },
     {
       "path": "../runtime"
+    },
+    {
+      "path": "../velum"
     }
   ]
 }

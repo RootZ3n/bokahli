@@ -2,6 +2,7 @@ export * from './identity.js';
 export * from './canary.js';
 export * from './attestation.js';
 export * from './routing.js';
+export * from './velum.js';
 export * from './luak.js';
 export * from './qualification.js';
 export * from './tasks.js';

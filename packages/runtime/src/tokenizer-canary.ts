@@ -26,6 +26,9 @@
  */
 import { createHash } from 'node:crypto';
 import {
+  BASE64_IMPLEMENTATION, decodeBase64, platformBase64Disagrees, toHex,
+} from '@bokahli/velum/base64';
+import {
   canaryReferenceIsIndependent,
   TOKENIZER_CANARY_SCHEMA,
   type CanaryReference,
@@ -141,6 +144,21 @@ export function validateCanarySuite(suite: unknown): readonly string[] {
     'method', 'generatorComponents', 'generatorDigest', 'generatorBuild',
     'producedByBackendInstanceId', 'note',
   ]);
+  // Every pinned encoding must be canonical base64 under the audited codec.
+  // A permissive decoder accepts several spellings of the same bytes, so a
+  // corrupted character could still decode to something plausible; a suite that
+  // cannot be read exactly is not expectations, it is a guess.
+  for (const c of s.encode) {
+    if (typeof c?.inputBase64 !== 'string' || decodeCanonical(c.inputBase64) === null) {
+      errs.push(`${NON_CANONICAL_PREFIX}: encode case ${String(c?.id)} inputBase64`);
+    }
+  }
+  for (const c of s.decode) {
+    if (typeof c?.expectedBytesBase64 !== 'string' || decodeCanonical(c.expectedBytesBase64) === null) {
+      errs.push(`${NON_CANONICAL_PREFIX}: decode case ${String(c?.id)} expectedBytesBase64`);
+    }
+  }
+
   const unknown = (obj: object, allowed: Set<string>, where: string): void => {
     for (const k of Object.keys(obj)) {
       if (!allowed.has(k)) errs.push(`unknown field ${where}.${k} would not be covered by the hash`);
@@ -213,7 +231,13 @@ function unverified(
   binding: CanaryBinding,
   suite: TokenizerCanarySuite | null,
   reasons: readonly string[],
+  hostIntegrityFault: string | null = null,
 ): TokenizerCanaryResult {
+  // One phrasing wherever a host fault is reported, so a reader grepping for it
+  // finds every occurrence rather than the two thirds that took one path.
+  const allReasons = hostIntegrityFault === null
+    ? reasons
+    : [`host integrity: ${hostIntegrityFault}`, ...reasons];
   return {
     schemaVersion: suite?.schemaVersion ?? null,
     canarySuiteId: suite?.suiteId ?? null,
@@ -229,10 +253,13 @@ function unverified(
     decodeReferenceMethod: suite?.decodeReference?.method ?? null,
     verifiedBackendInstanceId: binding.backendInstanceId,
     verifiedAt: observedAt,
-    reasons,
+    reasons: allReasons,
+    hostIntegrityFault,
+    baseEncodingImplementation: BASE64_IMPLEMENTATION,
     coverageNote: CANARY_COVERAGE_NOTE,
   };
 }
+
 
 /**
  * Run the canary. Never throws.
@@ -256,7 +283,14 @@ export async function verifyTokenizerCanary(
   }
 
   const structural = validateCanarySuite(suite);
-  if (structural.length > 0) return unverified(observedAt, binding, suite, structural);
+  if (structural.length > 0) {
+    // A pinned encoding that is not canonical is a fault in this machine or in
+    // the corpus, not a runtime that segments text differently. Naming it as
+    // such is what stops it degrading token provenance and pointing the
+    // investigation at the tokenizer.
+    const encodingFault = structural.find((e) => e.startsWith(NON_CANONICAL_PREFIX)) ?? null;
+    return unverified(observedAt, binding, suite, structural, encodingFault);
+  }
 
   const bindingReasons: string[] = [];
   if (suite.artifactDigest !== binding.artifactDigest) {
@@ -312,6 +346,25 @@ export async function verifyTokenizerCanary(
   const failed: string[] = [];
 
   // --- decode: token id -> bytes ------------------------------------------
+  // Set when the *host* is at fault rather than the runtime: a non-canonical
+  // pinned encoding, or a platform base64 encoder that disagrees with the
+  // audited one. Either is a statement about this machine, and neither may be
+  // reported as the tokenizer disagreeing with anything.
+  let hostIntegrity: string | null = null;
+
+  // A cheap probe, run once per canary rather than per case. It does not gate
+  // any comparison — those use the audited codec — it exists so that a host
+  // miscomputing base64 becomes a typed fault instead of a mystery.
+  {
+    const probe = platformBase64Disagrees(new TextEncoder().encode(HOST_PROBE_INPUT));
+    if (probe !== null) {
+      hostIntegrity =
+        'the platform base64 encoder disagrees with the audited implementation on a ' +
+        'fixed input; this host is miscomputing conversions and no measurement taken ' +
+        'on it can be attributed to the runtime or the model';
+    }
+  }
+
   let decodeMatched = 0;
   let decodeChecked = 0;
   let decodeUsable = true;
@@ -325,7 +378,22 @@ export async function verifyTokenizerCanary(
       reasons.push(`runtime detokenize failed (${(err as Error).name})`);
       break;
     }
-    if (Buffer.from(got, 'utf8').toString('base64') === c.expectedBytesBase64) decodeMatched += 1;
+    // Compared as lowercase hex over bytes, not as base64 strings.
+    //
+    // `Buffer.prototype.toString('base64')` returns a wrong character roughly
+    // once in a thousand calls on one physical core of this machine — silent,
+    // no machine check, source bytes provably unchanged. This comparison
+    // decides `decodeCanaryVerified`, which decides Luak's token provenance,
+    // so a host fault here used to surface as a tokenizer that "disagrees with
+    // the artifact token table" and discard an otherwise valid attempt.
+    // Hex is one spelling per byte and uses no vectorised conversion.
+    const expected = decodeCanonical(c.expectedBytesBase64);
+    if (expected === null) {
+      hostIntegrity ??= `canary case ${c.id} carries a non-canonical expectedBytesBase64`;
+      break;
+    }
+    const gotBytes = new TextEncoder().encode(got);
+    if (toHex(gotBytes) === toHex(expected)) decodeMatched += 1;
     else if (failed.length < MAX_REPORTED_FAILURES) failed.push(c.id);
   }
 
@@ -335,7 +403,12 @@ export async function verifyTokenizerCanary(
   let encodeUsable = true;
   for (const c of suite.encode) {
     encodeChecked += 1;
-    const text = Buffer.from(c.inputBase64, 'base64').toString('utf8');
+    const inputBytes = decodeCanonical(c.inputBase64);
+    if (inputBytes === null) {
+      hostIntegrity ??= `canary case ${c.id} carries a non-canonical inputBase64`;
+      break;
+    }
+    const text = new TextDecoder('utf-8').decode(inputBytes);
     let got: readonly number[];
     try {
       got = await sources.tokenize(text, {
@@ -357,16 +430,21 @@ export async function verifyTokenizerCanary(
   // No partial credit in either direction. A suite where one encode case fails
   // describes a runtime that segments text differently from the one the
   // expectations came from; that is the finding, not a rounding error.
-  const decodeVerified = decodeUsable && decodeChecked > 0 && decodeMatched === decodeChecked;
-  const encodeVerified = encodeUsable && encodeChecked > 0 && encodeMatched === encodeChecked;
+  // A host that cannot convert bytes reliably has not told us anything about
+  // the runtime. Both canaries are unverified, the reason says why, and the
+  // caller turns it into a runtime-unhealthy outcome rather than degraded
+  // token provenance. Nothing here is ever attributed to the model.
+  const decodeVerified = hostIntegrity === null && decodeUsable && decodeChecked > 0 && decodeMatched === decodeChecked;
+  const encodeVerified = hostIntegrity === null && encodeUsable && encodeChecked > 0 && encodeMatched === encodeChecked;
+  if (hostIntegrity !== null) reasons.push(`host integrity: ${hostIntegrity}`);
 
-  if (!decodeVerified && decodeUsable) {
+  if (!decodeVerified && decodeUsable && hostIntegrity === null) {
     reasons.push(
       `runtime decoding disagrees with the artifact token table ` +
         `(${decodeMatched}/${decodeChecked} cases matched)`,
     );
   }
-  if (!encodeVerified && encodeUsable) {
+  if (!encodeVerified && encodeUsable && hostIntegrity === null) {
     reasons.push(
       `runtime encoding disagrees with the pinned canary ` +
         `(${encodeMatched}/${encodeChecked} cases matched): the runtime segments text ` +
@@ -390,6 +468,30 @@ export async function verifyTokenizerCanary(
     verifiedBackendInstanceId: binding.backendInstanceId,
     verifiedAt: observedAt,
     reasons,
+    hostIntegrityFault: hostIntegrity,
+    baseEncodingImplementation: BASE64_IMPLEMENTATION,
     coverageNote: CANARY_COVERAGE_NOTE,
   };
 }
+
+/**
+ * Decode a pinned canary encoding, or null when it is not canonical base64.
+ *
+ * Strict on purpose. A permissive decoder accepts several spellings of the same
+ * bytes, so a corrupted character in a pinned suite could still decode to
+ * something plausible; this one refuses, and the refusal is a host or corpus
+ * fault rather than a quiet substitution.
+ */
+function decodeCanonical(text: string): Uint8Array | null {
+  try {
+    return decodeBase64(text);
+  } catch {
+    return null;
+  }
+}
+
+/** Marks a structural error as an encoding fault rather than a suite-shape one. */
+const NON_CANONICAL_PREFIX = 'a pinned canary encoding is not canonical base64';
+
+/** A fixed input for the host probe. Nothing secret, nothing derived. */
+const HOST_PROBE_INPUT = 'bokahli tokenizer canary host integrity probe 0123456789';

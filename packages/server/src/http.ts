@@ -21,8 +21,12 @@ import {
   type RouteSpec,
   type SamplerConfig,
   type ServedIdentity,
+  type VelumTelemetry,
 } from '@bokahli/contracts';
-import { authenticate, AUTH_COOKIE } from './auth.js';
+import { authenticate, AUTH_COOKIE, type AuthSource } from './auth.js';
+import { engineIdentity, type EvidenceItem, type TrustMode } from './trust.js';
+import { inspectionBytes, type ScanCapacity } from './velum-capacity.js';
+import type { ScanPool } from './scan-pool.js';
 import type { BokahliConfig } from './config.js';
 import {
   LLAMA_UNSET_SEED, resolveSamplerFacts, resolveTokenCounts,
@@ -45,6 +49,10 @@ export interface AppDeps {
   readonly telemetry: Telemetry;
   /** Phase B2 provenance probes, cached against the live backend instance. */
   readonly facts: FactsSource;
+  /** Process-wide budget for prompt-injection inspection. */
+  readonly scanCapacity: ScanCapacity;
+  /** Where inspection actually runs. Off the event loop, bounded, no queue. */
+  readonly scanPool: ScanPool;
   readonly startedAt: string;
 }
 
@@ -73,7 +81,7 @@ export function createHandler(deps: AppDeps) {
       }
 
       const auth = authenticate(req, deps.token, url);
-      if (!auth.ok) {
+      if (!auth.ok || auth.source === null) {
         deps.telemetry.recordAuthFailure(path, remoteOf(req));
         res.setHeader('www-authenticate', 'Bearer realm="bokahli"');
         return json(res, 401, bokahliError('UNAUTHORIZED', 'authentication required', requestId));
@@ -95,8 +103,8 @@ export function createHandler(deps: AppDeps) {
       if (path === '/v1/models') return await handleModels(deps, res, requestId);
       if (path === '/v1/catalog') return handleCatalog(deps, res, requestId);
       if (path === '/v1/telemetry') return handleTelemetry(deps, res, requestId);
-      if (path === '/v1/chat/completions') return await handleChat(deps, req, res, requestId, 'openai');
-      if (path === '/v1/bokahli/chat') return await handleChat(deps, req, res, requestId, 'native');
+      if (path === '/v1/chat/completions') return await handleChat(deps, req, res, requestId, 'openai', auth.source);
+      if (path === '/v1/bokahli/chat') return await handleChat(deps, req, res, requestId, 'native', auth.source);
       if (req.method === 'GET') return await serveStatic(deps, path, res, requestId);
 
       return json(res, 404, bokahliError('NOT_FOUND', 'no such route', requestId));
@@ -242,6 +250,18 @@ function handleTelemetry(deps: AppDeps, res: ServerResponse, requestId: string):
     requestId,
     summary: deps.telemetry.summary(),
     queue: deps.queue.stats(),
+    // Byte counts and request counts. An operator needs to see whether
+    // inspection is the thing refusing requests; nothing here is content, and
+    // no field can be traced to what any request contained.
+    velum: {
+      mode: deps.config.velumMode,
+      engine: engineIdentity(),
+      capacity: deps.scanCapacity.usage(),
+      // Worker counts, byte counts and timestamps. An operator needs to see
+      // whether inspection is the thing refusing requests, and whether its
+      // workers are crashing; nothing here is content.
+      workers: deps.scanPool.health(),
+    },
     recent: deps.telemetry.recent(25),
   });
 }
@@ -258,6 +278,15 @@ async function handleChat(
   res: ServerResponse,
   requestId: string,
   dialect: Dialect,
+  /**
+   * How the caller authenticated.
+   *
+   * The trust boundary uses it to tell the operator's own browser session from
+   * a programmatic client. Both are trusted speakers; the distinction is
+   * reported, never enforced. It is passed in rather than re-derived because
+   * re-deriving it would mean a second reading of the request's credentials.
+   */
+  authSource: AuthSource,
 ): Promise<void> {
   if (req.method !== 'POST') {
     return json(res, 405, bokahliError('METHOD_NOT_ALLOWED', 'POST required', requestId));
@@ -279,7 +308,138 @@ async function handleChat(
   if ('error' in parsed) {
     return json(res, 400, bokahliError('BAD_REQUEST', parsed.error, requestId));
   }
-  const { spec, messages, maxTokens, temperature, topP, topK, seed, requestedSampler, stream, pinnedModelId } = parsed;
+  const { spec, maxTokens, temperature, topP, topK, seed, requestedSampler, stream, pinnedModelId } = parsed;
+
+  // ── inspection capacity ──────────────────────────────────────────────────
+  //
+  // Reserved before anything is inspected, and for every zone at once: a
+  // per-request budget spent once per evidence item would be no budget. Held
+  // until the response ends, because what a scan leaves behind — raw evidence,
+  // the fenced rendering, the transformation map — is retained that long so a
+  // citation stays resolvable.
+  const scanBytes = inspectionBytes(parsed.messages, parsed.evidence);
+  const reserved = deps.scanCapacity.reserve(scanBytes);
+  if (!reserved.ok) {
+    const cap: CapacityUnavailable = {
+      kind: 'CAPACITY_UNAVAILABLE',
+      mode: spec.mode,
+      reason: 'VELUM_SCAN_CAPACITY',
+      detail:
+        reserved.reason === 'PER_REQUEST'
+          ? `this request carries ${reserved.requestedBytes} bytes of content to inspect, past the ` +
+            `${reserved.limitBytes}-byte per-request limit. Send less, or split it across requests.`
+          : `${reserved.requestedBytes} bytes need inspecting and ${reserved.availableBytes} of the ` +
+            `${reserved.limitBytes}-byte process budget are free. Inspection is not queued: a waiter ` +
+            'holds the memory it is waiting for.',
+      queueDepth: deps.queue.depth,
+      retryAfterSeconds: reserved.reason === 'PER_REQUEST' ? null : 5,
+      leaseHolder: null,
+    };
+    return finishNonRouted(deps, res, requestId, receivedAt, t0, spec, cap, 0, null, dialect);
+  }
+
+  try {
+  // ── the trust boundary ───────────────────────────────────────────────────
+  //
+  // Before routing, before capacity, before anything reaches a backend. Two
+  // reasons for the position. A request whose evidence is refused must not
+  // consume a queue slot or a GPU lease to find that out; and inspection has to
+  // happen while the caller's bytes are still the caller's bytes, because the
+  // fenced rendering is what goes onward and the raw is what a citation
+  // resolves against.
+  const admitted = await deps.scanPool.inspect({
+    requestId,
+    authSource,
+    messages: parsed.messages,
+    evidence: parsed.evidence,
+    mode: deps.config.velumMode,
+  });
+  if (admitted.kind === 'SATURATED') {
+    // Every worker is busy and there is no queue: a waiter would hold the
+    // evidence it is waiting to have inspected, which is the unbounded memory
+    // the byte reservation exists to prevent, one layer down.
+    const cap: CapacityUnavailable = {
+      kind: 'CAPACITY_UNAVAILABLE',
+      mode: spec.mode,
+      reason: 'VELUM_SCAN_CAPACITY',
+      detail:
+        `all ${admitted.workers} inspection workers are busy (${admitted.busy} in flight). ` +
+        'Inspection is not queued; retry shortly.',
+      queueDepth: deps.queue.depth,
+      retryAfterSeconds: 5,
+      leaseHolder: null,
+    };
+    return finishNonRouted(deps, res, requestId, receivedAt, t0, spec, cap, 0, null, dialect);
+  }
+  if (admitted.kind === 'ESCALATE') {
+    // Not a verdict about the content: a statement that no verdict was reached.
+    // The alternative — proceeding with inspection skipped — is the failure
+    // mode this whole boundary exists to prevent.
+    const esc: Escalation = {
+      kind: 'ESCALATE',
+      mode: spec.mode,
+      reason: admitted.reason,
+      detail: admitted.detail,
+      unmet: [],
+      considered: [],
+      authorityNote:
+        'Bokahli inspects caller-supplied evidence before it can reach the model. ' +
+        'This request was not inspected to completion, so it was not executed. ' +
+        'Nothing about this outcome is a statement about the model or the content.',
+      retryableLocal: true,
+    };
+    return finishNonRouted(deps, res, requestId, receivedAt, t0, spec, esc, 0, null, dialect);
+  }
+  if (admitted.kind === 'BLOCKED') {
+    const esc: Escalation = {
+      kind: 'ESCALATE',
+      mode: spec.mode,
+      reason: 'VELUM_EVIDENCE_BLOCKED',
+      detail: admitted.reason,
+      unmet: [],
+      considered: [],
+      authorityNote:
+        'A block-severity pattern matched inside caller-supplied evidence under enforce ' +
+        'mode. The evidence was not sent to the model. This is a statement about the ' +
+        'content of the evidence, not about the model or the requested route.',
+      retryableLocal: false,
+    };
+    return finishNonRouted(
+      deps, res, requestId, receivedAt, t0, spec, esc, 0, null, dialect, null, admitted.telemetry,
+    );
+  }
+  const messages = admitted.messages;
+  const velumTelemetry = admitted.telemetry;
+
+  // A host that cannot convert bytes reliably cannot produce evidence about
+  // anything. Refused here rather than served with quietly degraded token
+  // provenance, which is where a base64 fault used to land: as a tokenizer that
+  // "disagrees with the artifact token table", discarding a valid attempt and
+  // pointing the investigation at the wrong component.
+  const hostFault = deps.facts.hostIntegrityFault?.() ?? null;
+  if (hostFault !== null) {
+    const esc: Escalation = {
+      kind: 'ESCALATE',
+      mode: spec.mode,
+      reason: 'HOST_INTEGRITY_FAULT',
+      detail:
+        `${hostFault}. No measurement taken on this machine can be attributed to the ` +
+        'runtime or the model until it is resolved.',
+      unmet: [{ requirement: 'host.byteConversionFaithful', required: 'true', actual: 'false' }],
+      considered: [],
+      authorityNote:
+        'This is a statement about the deployment machine, not about the model and not ' +
+        'about the served artifact. It must never be recorded as qualification evidence.',
+      // Not retryable. The fault is intermittent, so a retry may well succeed —
+      // and that is exactly the wrong thing to do: it samples a machine that is
+      // known to compute wrong answers until one of them looks right. A
+      // deployment reaching this needs investigation, not another attempt.
+      retryableLocal: false,
+    };
+    return finishNonRouted(
+      deps, res, requestId, receivedAt, t0, spec, esc, 0, null, dialect, null, velumTelemetry,
+    );
+  }
 
   const promptText = messages.map((m) => m.content).join('\n');
   const estimated = estimateTokens(promptText);
@@ -474,7 +634,7 @@ async function handleChat(
         requestId, receivedAt, admittedAt, instanceAtAdmission,
         t0, admission, spec, outcome, served, artifact,
         messages, maxTokens, temperature, topP, topK, seed, requestedSampler,
-        routeMs: decision.routeMs,
+        routeMs: decision.routeMs, velum: velumTelemetry,
         gpu: gpuState.snapshot, dialect, signal: ac.signal,
       });
     } else {
@@ -482,16 +642,30 @@ async function handleChat(
         requestId, receivedAt, admittedAt, instanceAtAdmission,
         t0, admission, spec, outcome, served, artifact,
         messages, maxTokens, temperature, topP, topK, seed, requestedSampler,
-        routeMs: decision.routeMs,
+        routeMs: decision.routeMs, velum: velumTelemetry,
         gpu: gpuState.snapshot, dialect, signal: ac.signal,
       });
     }
   } finally {
-    admission.release();
+      admission.release();
+    }
+  } finally {
+    // Released here and only here: every early return above — escalation,
+    // block, capacity, refusal — leaves through it, and `release` is idempotent
+    // so a nested `finally` cannot hand the budget capacity twice.
+    reserved.reservation.release();
   }
 }
 
 interface ExecArgs {
+  /**
+   * What the trust boundary decided about this request's content.
+   *
+   * Carried rather than recomputed: inspection happened once, before anything
+   * reached the backend, and re-running it here would be a second boundary
+   * whose answer could differ from the one that actually gated the request.
+   */
+  velum: VelumTelemetry | null;
   requestId: string;
   receivedAt: string;
   /** When the queue admitted this request; the start of its evidence window. */
@@ -622,6 +796,7 @@ async function streamChat(deps: AppDeps, res: ServerResponse, a: ExecArgs): Prom
 
   const telemetry = await buildTelemetry(deps, a, {
     firstTokenAt, promptTokens, completionTokens, promptTps, completionTps,
+    completionText: text,
   });
 
   // Headers and deltas are already on the wire, so the terminal event carries
@@ -735,6 +910,7 @@ async function bufferChat(deps: AppDeps, res: ServerResponse, a: ExecArgs): Prom
 
   const telemetry = await buildTelemetry(deps, a, {
     firstTokenAt, promptTokens, completionTokens, promptTps, completionTps,
+    completionText: text,
   });
 
   // The completion exists. Whether it can be attributed is a separate question,
@@ -851,6 +1027,39 @@ function enforcesAttribution(a: ExecArgs): boolean {
   );
 }
 
+/**
+ * Append a model-output packet to the request's inspection report.
+ *
+ * Returns the report unchanged when there is nothing to add. The completion is
+ * never modified, and a finding here never changes the outcome: the packet's
+ * `disposition` is always `passed`.
+ */
+async function withModelOutput(
+  deps: AppDeps,
+  requestId: string,
+  base: VelumTelemetry | null,
+  completion: string | undefined,
+  mode: TrustMode,
+): Promise<VelumTelemetry | null> {
+  if (base === null || completion === undefined || mode === 'off') return base;
+  // Off the event loop like every other scan. Observation only: a saturated
+  // pool or a failed worker degrades to no packet rather than affecting a
+  // request that has already run.
+  const packet = await deps.scanPool.inspectModelOutput(requestId, 'completion', completion, mode);
+  if (packet === null) return base;
+  const packets = [...base.packets, packet];
+  return {
+    ...base,
+    packets,
+    // The overall decision is deliberately not raised by model output. A
+    // completion that echoes an injection is a fact worth publishing, not a
+    // reason to retroactively refuse a request that already ran.
+    clean: packets.every((p) => p.scanned && p.findingCount === 0),
+    scannedAll: packets.every((p) => p.scanned),
+    receipt: `${base.receipt} model-output=${packet.findingCount === 0 ? 'clean' : `${packet.findingCount} finding(s)`}`,
+  };
+}
+
 async function buildTelemetry(
   deps: AppDeps,
   a: ExecArgs,
@@ -860,6 +1069,16 @@ async function buildTelemetry(
     completionTokens: number | null;
     promptTps: number | null;
     completionTps: number | null;
+    /**
+     * The completion, for observation only.
+     *
+     * Inspecting model output answers "did the model do what the injected text
+     * asked" — useful telemetry, and the reason it is worth scanning. It does
+     * **not** gate the response and it never edits it. Rewriting a completion
+     * would make every downstream measurement of the model a measurement of
+     * Bokahli's editor instead, and measuring the model is what Luak is for.
+     */
+    completionText?: string;
   },
 ): Promise<RequestTelemetry> {
   const slot = await readEffectiveSampler(deps, a);
@@ -927,6 +1146,7 @@ async function buildTelemetry(
     contextUtilisation: served > 0 ? used / served : null,
     runtimeBuild: a.served.runtime.build,
     gpu: a.gpu,
+    velum: await withModelOutput(deps, a.requestId, a.velum, m.completionText, deps.config.velumMode),
     tokenCounts,
     sampler,
     attemptLifetime,
@@ -1005,6 +1225,7 @@ function finishNonRouted(
   gpu: GpuSnapshot | null,
   dialect: Dialect,
   lifetime: AttemptLifetime | null = null,
+  velum: VelumTelemetry | null = null,
 ): void {
   const telemetry: RequestTelemetry = {
     requestId,
@@ -1046,6 +1267,7 @@ function finishNonRouted(
     // in telemetry, or a consumer reading only telemetry sees an escalation
     // with no record of why the attempt was dropped.
     attemptLifetime: lifetime ?? null,
+    velum,
     servedContextTokens: null,
     contextUtilisation: null,
     runtimeBuild: null,
@@ -1083,6 +1305,17 @@ function finishNonRouted(
 interface ParsedChat {
   spec: RouteSpec;
   messages: readonly BokahliChatMessage[];
+  /**
+   * Caller-supplied evidence: logs, files, documents.
+   *
+   * A separate channel from `messages`, and that separation is the point. The
+   * same sentence is a request in a message and an attack in a log, and nothing
+   * in the bytes distinguishes them — only the channel does. A caller that
+   * pastes a hostile document into a `user` message gets it treated as their own
+   * instruction, which is correct: they said it. A caller that submits it as
+   * evidence gets it fenced and scanned, which is also correct.
+   */
+  evidence: readonly EvidenceItem[];
   maxTokens: number;
   temperature: number | undefined;
   topP: number | undefined;
@@ -1164,6 +1397,53 @@ function parseSamplerObject(raw: unknown): SamplerConfig | { error: string } {
   return out as SamplerConfig;
 }
 
+/**
+ * Parse the optional `evidence` array.
+ *
+ * Strict, and strict in the fail-closed direction: an evidence item that cannot
+ * be read is a refusal, never a silently dropped one. Dropping it would mean
+ * the model answers a question about a document it was never given, and the
+ * caller has no way to tell that from an answer about the document.
+ *
+ * Ids are bounded and required to be distinct because they are what a finding
+ * and a citation are reported against; two items sharing an id would make a
+ * span ambiguous between them.
+ */
+function parseEvidence(raw: unknown, maxRequestBytes: number): { items: EvidenceItem[] } | { error: string } {
+  if (raw === undefined || raw === null) return { items: [] };
+  if (!Array.isArray(raw)) return { error: 'evidence must be an array' };
+  if (raw.length > MAX_EVIDENCE_ITEMS) {
+    return { error: `evidence has ${raw.length} items, past the ${MAX_EVIDENCE_ITEMS} cap` };
+  }
+  const items: EvidenceItem[] = [];
+  const seen = new Set<string>();
+  let total = 0;
+  for (const [i, e] of (raw as unknown[]).entries()) {
+    if (typeof e !== 'object' || e === null || Array.isArray(e)) {
+      return { error: `evidence[${i}] must be an object` };
+    }
+    const o = e as Record<string, unknown>;
+    const id = o['id'];
+    const content = o['content'];
+    if (typeof id !== 'string' || id.length === 0 || id.length > MAX_EVIDENCE_ID_CHARS) {
+      return { error: `evidence[${i}].id must be a string of 1..${MAX_EVIDENCE_ID_CHARS} characters` };
+    }
+    if (seen.has(id)) return { error: `evidence[${i}].id ${JSON.stringify(id)} is not unique` };
+    seen.add(id);
+    if (typeof content !== 'string') return { error: `evidence[${i}].content must be a string` };
+    total += Buffer.byteLength(content, 'utf8');
+    if (total > maxRequestBytes) {
+      return { error: `evidence exceeds ${maxRequestBytes} bytes in total` };
+    }
+    items.push({ id, content });
+  }
+  return { items };
+}
+
+/** Bounds on the evidence channel. Both are enforced before any scan runs. */
+const MAX_EVIDENCE_ITEMS = 32;
+const MAX_EVIDENCE_ID_CHARS = 128;
+
 function parseChatRequest(
   body: Record<string, unknown>,
   dialect: Dialect,
@@ -1185,6 +1465,9 @@ function parseChatRequest(
     }
     messages.push({ role, content });
   }
+
+  const evidence = parseEvidence(body['evidence'], deps.config.maxRequestBytes);
+  if ('error' in evidence) return { error: evidence.error };
 
   // Phase 1 parsing, byte for byte. Do not tighten: a client that has been
   // sending `temperature: "0.7"` since Phase 1 must keep getting 0.7.
@@ -1223,7 +1506,7 @@ function parseChatRequest(
     const r = body['route'];
     const spec = parseRouteSpec(r);
     if ('error' in spec) return spec;
-    return { spec: spec.spec, messages, maxTokens, temperature, topP, topK, seed, requestedSampler, stream, pinnedModelId: null };
+    return { spec: spec.spec, messages, evidence: evidence.items, maxTokens, temperature, topP, topK, seed, requestedSampler, stream, pinnedModelId: null };
   }
 
   // OpenAI dialect. An explicit `bokahli.route` extension wins if present.
@@ -1231,14 +1514,14 @@ function parseChatRequest(
   if (ext && ext['route']) {
     const spec = parseRouteSpec(ext['route']);
     if ('error' in spec) return spec;
-    return { spec: spec.spec, messages, maxTokens, temperature, topP, topK, seed, requestedSampler, stream, pinnedModelId: null };
+    return { spec: spec.spec, messages, evidence: evidence.items, maxTokens, temperature, topP, topK, seed, requestedSampler, stream, pinnedModelId: null };
   }
 
   const model = body['model'];
   if (model == null || model === '' || model === 'auto' || model === 'bokahli:auto') {
     return {
       spec: { mode: 'AUTO' },
-      messages, maxTokens, temperature, topP, topK, seed, requestedSampler, stream, pinnedModelId: null,
+      messages, evidence: evidence.items, maxTokens, temperature, topP, topK, seed, requestedSampler, stream, pinnedModelId: null,
     };
   }
   if (typeof model !== 'string') return { error: 'model must be a string' };
@@ -1250,7 +1533,7 @@ function parseChatRequest(
     const digest = model.slice(at + 1);
     return {
       spec: { mode: 'EXACT', modelId: id, artifactDigest: digest },
-      messages, maxTokens, temperature, topP, topK, seed, requestedSampler, stream, pinnedModelId: null,
+      messages, evidence: evidence.items, maxTokens, temperature, topP, topK, seed, requestedSampler, stream, pinnedModelId: null,
     };
   }
 
@@ -1266,7 +1549,7 @@ function parseChatRequest(
   void deps;
   return {
     spec: { mode: 'AUTO' },
-    messages, maxTokens, temperature, topP, topK, seed, requestedSampler, stream, pinnedModelId: model,
+    messages, evidence: evidence.items, maxTokens, temperature, topP, topK, seed, requestedSampler, stream, pinnedModelId: model,
   };
 }
 

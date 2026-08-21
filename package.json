@@ -10,6 +10,7 @@
   },
   "workspaces": [
     "packages/contracts",
+    "packages/velum",
     "packages/catalog",
     "packages/qualification",
     "packages/tasks",
