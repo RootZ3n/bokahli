@@ -251,7 +251,12 @@ async function probeUnavailable() {
 function writeRuntimeEnv(profile) {
   const body = [
     '# Written by scripts/measure-placement.mjs for one measurement.',
-    '# Restored to the control profile at the end of the campaign.',
+    '# This is a MEASUREMENT profile, not the control. It stays in place until',
+    '# scripts/restore-control.sh overwrites it, which is the only thing that',
+    '# restores the control. The previous wording here promised the restore in',
+    '# the past tense on every write, so this file claimed to hold the control',
+    '# while holding whatever was last measured — a lie in exactly the file',
+    '# whose purpose is to state the running configuration explicitly.',
     `BOKAHLI_MODEL_PATH=${profile.artifactPath}`,
     `BOKAHLI_MODEL_ALIAS=${profile.modelId}`,
     'BOKAHLI_RUNTIME_PORT=8081',

@@ -109,8 +109,13 @@ chk "OpenAI dialect rejects a path in the model field" \
 hdr "7. Routing contract: AUTO, PROFILE, ESCALATE"
 chk "AUTO routes to the single installed artifact" \
     "$(ex '{"route":{"mode":"AUTO","taskClass":"chat"},"messages":[{"role":"user","content":"Say OK."}],"maxTokens":4}' | jq -r '.route.selected.modelId')" "$MODEL"
-chk "AUTO passes through the contract (candidates recorded)" \
-    "$(ex '{"route":{"mode":"AUTO"},"messages":[{"role":"user","content":"Say OK."}],"maxTokens":4}' | jq -r '.route.considered|length')" "1"
+# Every catalogued artifact is assessed and reported, not just the one that won.
+# Pinned to the catalog size rather than a literal: this asserted "1" from when
+# one artifact was installed, and read as a passing check for a contract that had
+# silently stopped being tested the moment a second artifact arrived.
+chk "AUTO assesses every catalogued artifact" \
+    "$(ex '{"route":{"mode":"AUTO"},"messages":[{"role":"user","content":"Say OK."}],"maxTokens":4}' | jq -r '.route.considered|length')" \
+    "$(auth "$LOOP/v1/catalog" | jq -r '.catalog|length')"
 chk "AUTO + requireQualified escalates (no Luak evidence)" \
     "$(ex '{"route":{"mode":"AUTO","requireQualified":true},"messages":[{"role":"user","content":"x"}],"maxTokens":4}' | jq -r '.route.reason')" "NO_QUALIFIED_LOCAL_ROUTE"
 chk "that escalation is typed ESCALATE" \
@@ -121,8 +126,18 @@ chk "PROFILE rejects an unmet context floor" \
     "$(ex '{"route":{"mode":"PROFILE","requirements":{"minContextTokens":131072}},"messages":[{"role":"user","content":"x"}],"maxTokens":4}' | jq -r '.route.reason')" "CONTEXT_EXCEEDS_LOCAL_CAPABILITY"
 chk "PROFILE rejects a denied quantisation" \
     "$(ex '{"route":{"mode":"PROFILE","requirements":{"quantizationDenyList":["Q2_K"]}},"messages":[{"role":"user","content":"x"}],"maxTokens":4}' | jq -r '.route.unmet[0].requirement')" "facts.quantization"
-chk "PROFILE rejects requireQualified" \
-    "$(ex '{"route":{"mode":"PROFILE","requirements":{"requireQualified":true}},"messages":[{"role":"user","content":"x"}],"maxTokens":4}' | jq -r '.route.unmet[0].actual')" "INSTALLED_UNQUALIFIED"
+# Two separate facts, checked separately, because they were conflated before.
+# `unmet[].actual` carries the *decision reason*; the artifact's declared state
+# lives in `considered[].qualification.status`. Asserting INSTALLED_UNQUALIFIED
+# against the reason field checked neither one.
+chk "PROFILE rejects requireQualified (decision reason)" \
+    "$(ex '{"route":{"mode":"PROFILE","requirements":{"requireQualified":true}},"messages":[{"role":"user","content":"x"}],"maxTokens":4}' | jq -r '.route.unmet[0].actual')" "MODEL_NOT_QUALIFIED_FOR_TASK"
+chk "PROFILE rejects requireQualified (artifact stays unqualified)" \
+    "$(ex '{"route":{"mode":"PROFILE","requirements":{"requireQualified":true}},"messages":[{"role":"user","content":"x"}],"maxTokens":4}' | jq -r '.route.considered[0].qualification.status')" "INSTALLED_UNQUALIFIED"
+# The summary collapses identical requirements; per-artifact detail is in
+# `considered`. One distinct requirement, however many candidates failed it.
+chk "the unmet summary does not repeat one requirement per artifact" \
+    "$(ex '{"route":{"mode":"PROFILE","requirements":{"requireQualified":true}},"messages":[{"role":"user","content":"x"}],"maxTokens":4}' | jq -r '.route.unmet|length')" "1"
 chk "PROFILE that is satisfiable routes" \
     "$(ex '{"route":{"mode":"PROFILE","requirements":{"requiredCapabilities":["chat"],"minContextTokens":8192}},"messages":[{"role":"user","content":"Say OK."}],"maxTokens":4}' | jq -r '.outcome')" "ROUTED"
 chk "escalation carries the authority note" \

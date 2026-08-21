@@ -21,8 +21,13 @@ Type=exec
 # by --api-key-file, loading it would put the secret in this process's
 # environment for no reason. /proc/<pid>/environ is owner-only, so that was
 # not a disclosure, but a secret a process never needs is a secret it should
-# never hold. bokahli.service still loads shared.env: it is this backend's
-# client and needs the value to send.
+# never hold.
+#
+# bokahli.service no longer loads it either. It is this backend's client and
+# does need the value to send, but it now reads it from
+# ~/.config/bokahli/runtime-api-key at startup instead of inheriting it as an
+# environment variable — so neither process carries the key in its environ, and
+# the one place the secret lives is a single 0600 file that both sides name.
 EnvironmentFile=%h/.config/bokahli/runtime.env
 WorkingDirectory=%h
 

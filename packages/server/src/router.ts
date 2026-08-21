@@ -706,11 +706,42 @@ function escalate(
     mode,
     reason,
     detail,
-    unmet,
+    unmet: dedupeUnmet(unmet),
     considered,
     authorityNote: AUTHORITY_NOTE,
     retryableLocal,
   };
+}
+
+/**
+ * Collapse identical unmet requirements.
+ *
+ * The top-level `unmet` list summarises why the request could not be served.
+ * When every candidate fails the same requirement — which is what happens for a
+ * whole-catalog condition like "nothing here is qualified" — it accumulated one
+ * identical entry per artifact. With one artifact installed that was invisible;
+ * at five it is the same sentence five times, and it grows with the catalog,
+ * so the summary gets less readable exactly as it covers more.
+ *
+ * Nothing is lost by collapsing it. The per-artifact truth is in `considered`,
+ * where each assessment carries its own `unmet`, its `qualification.status` and
+ * a `qualificationDecision.detail` naming the artifact — strictly more than the
+ * duplicates held. A caller wanting per-artifact reasons reads `considered`; a
+ * caller wanting the summary gets a summary.
+ *
+ * Order is preserved: the first occurrence of each distinct requirement stays
+ * where it was, so `unmet[0]` remains the primary reason.
+ */
+function dedupeUnmet(unmet: readonly UnmetRequirement[]): UnmetRequirement[] {
+  const seen = new Set<string>();
+  const out: UnmetRequirement[] = [];
+  for (const u of unmet) {
+    const k = `${u.requirement}\u0000${u.required}\u0000${u.actual}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(u);
+  }
+  return out;
 }
 
 /**
