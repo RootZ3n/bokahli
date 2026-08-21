@@ -268,8 +268,25 @@ function writeRuntimeEnv(profile) {
   writeFileSync(RUNTIME_ENV, body);
 }
 
-/** Start the runtime and time the cold load. */
+/**
+ * Start the runtime and time the cold load.
+ *
+ * `reset-failed` first, and it is not housekeeping. The unit carries
+ * `StartLimitBurst=5` over `StartLimitIntervalSec=300` — a crash-loop guard
+ * that is exactly right for a service and exactly wrong for a campaign that
+ * deliberately restarts it eleven times in ten minutes. Once the limit is hit,
+ * every subsequent start fails in about fifteen milliseconds with
+ * `start-limit-hit`, and the harness records a string of instant "cold load 13
+ * ms, state=failed" results that look like the *models* failing to load. Six
+ * refinement profiles were lost to that before it was noticed.
+ *
+ * Clearing the counter is honest here because the campaign is the thing causing
+ * the restarts and knows it. It does not weaken the guard for ordinary
+ * operation: the unit file is untouched, and a genuine crash loop outside a
+ * measurement still trips it.
+ */
 async function startAndTime() {
+  await sh('systemctl', ['--user', 'reset-failed', 'bokahli-runtime.service']);
   const t0 = now();
   let startError = null;
   try {
