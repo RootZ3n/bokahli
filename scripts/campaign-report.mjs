@@ -141,6 +141,51 @@ function stageTable(summaries) {
 }
 
 /**
+ * Per-lane detail, read from the records rather than from the stage summary.
+ *
+ * Phase 6 asks for grounding, unsupported claims, abstention, degeneration and
+ * the rest reported *separately*, and this is where that is honoured. The
+ * summary file carries counts; the records carry the measurements, and a lane
+ * average is not a substitute for knowing that citations were valid 0 times out
+ * of 21 because the model was off by one line every time.
+ */
+function laneDetail(dir) {
+  if (!has(dir)) return [];
+  const rows = [];
+  for (const f of readdirSync(dir).filter((x) => x.endsWith('.records.json'))) {
+    const d = read(join(dir, f));
+    // `<modelId>.<suiteId>.<regime>.records.json`
+    const parts = f.replace('.records.json', '').split('.');
+    const regime = parts[parts.length - 1];
+    const modelId = f.split('.local-l')[0];
+    const acc = {};
+    const bump = (k, v) => {
+      if (typeof v !== 'number') return;
+      acc[k] ??= { sum: 0, n: 0 };
+      acc[k].sum += v; acc[k].n += 1;
+    };
+    for (const rec of d.records) {
+      for (const l of rec.lanes) {
+        for (const m of l.measurements) bump(m.name, m.value);
+      }
+    }
+    const g = (k) => (acc[k] ? acc[k].sum : null);
+    rows.push([
+      modelId, regime, d.records.length,
+      `${g('citations.valid') ?? 0}/${g('citations.total') ?? 0}`,
+      g('citations.validTransportEscaped') ?? 0,
+      g('citations.quoteMismatch') ?? 0,
+      g('facts.forbiddenViolations') ?? 0,
+      g('facts.hallucinatedReferences') ?? 0,
+      `${g('abstention.correct') ?? 0}/${d.records.length}`,
+      g('abstention.overRefusal') ?? 0,
+      g('abstention.answeredWhenUnanswerable') ?? 0,
+    ]);
+  }
+  return rows;
+}
+
+/**
  * The Stage A survival rule, applied with its reasons kept.
  *
  * A campaign gate, not a qualification threshold: it decides which candidates
@@ -231,6 +276,20 @@ if (summaries.length > 0) {
   parts.push('## Stage A — both regimes, never pooled\n');
   parts.push(stageTable(summaries));
   parts.push('');
+  const detail = laneDetail(stageDir);
+  if (detail.length > 0) {
+    parts.push('### Per-lane detail — kept apart, never collapsed into a score\n');
+    parts.push('`escaped` counts citations that matched only after undoing the transport\'s own');
+    parts.push('fence escaping — grounded, and reported apart so the transport\'s contribution to');
+    parts.push('the grounding rate stays visible.\n');
+    parts.push(mdTable(
+      ['artifact', 'regime', 'n', 'citations valid', 'escaped', 'quote mismatch',
+        'forbidden claims', 'hallucinated', 'abstention correct', 'over-refusal', 'answered unanswerable'],
+      detail,
+    ));
+    parts.push('');
+  }
+
   parts.push('### Stage A survival\n');
   parts.push('A campaign gate, not a qualification threshold. It decides where Stage B time goes');
   parts.push('and confers nothing on any artifact.\n');
