@@ -8,3 +8,4 @@ export * from './qualification.js';
 export * from './tasks.js';
 export * from './structured-output.js';
 export * from './errors.js';
+export * from './client.js';
