@@ -138,6 +138,16 @@ export interface ChatParams {
    */
   readonly topK?: number | undefined;
   readonly seed?: number | undefined;
+  /**
+   * `response_format`, verbatim, for constrained generation.
+   *
+   * Omitted from the request entirely when undefined, so an unconstrained call
+   * produces the same body it always did and no existing client's request
+   * changes shape. Passed through rather than rebuilt: a schema Bokahli
+   * reshaped would constrain generation to a contract the caller never wrote,
+   * and every result under it would describe that contract instead.
+   */
+  readonly responseFormat?: unknown | undefined;
 }
 
 export interface StreamEvent {
@@ -494,6 +504,7 @@ export class LlamaBackend {
       top_p: params.topP ?? 0.95,
       ...(params.topK !== undefined ? { top_k: params.topK } : {}),
       ...(params.seed !== undefined ? { seed: params.seed } : {}),
+      ...(params.responseFormat !== undefined ? { response_format: params.responseFormat } : {}),
       stream: true,
       stream_options: { include_usage: true },
       timings_per_token: false,
@@ -539,6 +550,32 @@ export class LlamaBackend {
     } finally {
       signal.removeEventListener('abort', onOuterAbort);
     }
+  }
+
+  /**
+   * One short buffered completion, for probes.
+   *
+   * A thin consumer of `chatStream`, not a second request path: a probe that
+   * built its own body could confirm a behaviour on a request shape the serving
+   * path never sends. The abort here is the probe's own bound, so a runtime that
+   * stops mid-generation leaves a claim unproven rather than hanging a startup.
+   */
+  async chatOnce(
+    alias: string,
+    params: ChatParams,
+    timeoutMs: number,
+  ): Promise<string> {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    let text = '';
+    try {
+      for await (const ev of this.chatStream(alias, params, ctrl.signal)) {
+        if (ev.type === 'delta') text += ev.text;
+      }
+    } finally {
+      clearTimeout(timer);
+    }
+    return text;
   }
 
   async #get(path: string, timeoutMs: number): Promise<Response> {

@@ -9,3 +9,4 @@ export * from './hostfacts.js';
 export * from './facts.js';
 export * from './tokenizer-canary.js';
 export * from './tokenizer-probe.js';
+export * from './structured-output-probe.js';

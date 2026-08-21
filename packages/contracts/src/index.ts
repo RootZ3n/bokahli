@@ -6,4 +6,5 @@ export * from './velum.js';
 export * from './luak.js';
 export * from './qualification.js';
 export * from './tasks.js';
+export * from './structured-output.js';
 export * from './errors.js';

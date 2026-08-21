@@ -23,6 +23,10 @@ import {
   type ServedIdentity,
   type VelumTelemetry,
   type EvidencePolicyFacts,
+  type StructuredOutputRequest,
+  type StructuredOutputFacts,
+  structuredOutputSchemaDigest,
+  unconstrainedFacts,
 } from '@bokahli/contracts';
 import { authenticate, AUTH_COOKIE, type AuthSource } from './auth.js';
 import { engineIdentity, type EvidenceItem, type TrustMode } from './trust.js';
@@ -199,6 +203,15 @@ async function handleReady(deps: AppDeps, res: ServerResponse, requestId: string
     runtimeFacts: facts?.runtime ?? null,
     tokenizer: facts?.tokenizer ?? null,
     promptTemplate: facts?.template ?? null,
+    /**
+     * Whether this instance genuinely constrains generation when asked to.
+     *
+     * Probed behaviourally and reported here rather than only per-request,
+     * because it is a property of the serving process: an operator deciding
+     * whether a production regime is available needs the answer before sending
+     * the request that would depend on it.
+     */
+    structuredOutput: facts?.structuredOutput ?? null,
     attestation: facts?.attestation ?? null,
     qualification: {
       authority: 'luak',
@@ -643,6 +656,7 @@ async function handleChat(
         t0, admission, spec, outcome, served, artifact,
         messages, maxTokens, temperature, topP, topK, seed, requestedSampler,
         routeMs: decision.routeMs, velum: velumTelemetry, evidencePolicy,
+        structuredOutput: parsed.structuredOutput,
         gpu: gpuState.snapshot, dialect, signal: ac.signal,
       });
     } else {
@@ -651,6 +665,7 @@ async function handleChat(
         t0, admission, spec, outcome, served, artifact,
         messages, maxTokens, temperature, topP, topK, seed, requestedSampler,
         routeMs: decision.routeMs, velum: velumTelemetry, evidencePolicy,
+        structuredOutput: parsed.structuredOutput,
         gpu: gpuState.snapshot, dialect, signal: ac.signal,
       });
     }
@@ -682,6 +697,8 @@ interface ExecArgs {
    * main-thread copy would be a second source for one fact.
    */
   evidencePolicy: EvidencePolicyFacts | null;
+  /** The caller's constrained-generation request, or null. */
+  structuredOutput: StructuredOutputRequest | null;
   requestId: string;
   receivedAt: string;
   /** When the queue admitted this request; the start of its evidence window. */
@@ -744,6 +761,7 @@ async function streamChat(deps: AppDeps, res: ServerResponse, a: ExecArgs): Prom
         // be an own property and would change the request body shape.
         ...(a.topK !== undefined ? { topK: a.topK } : {}),
         ...(a.seed !== undefined ? { seed: a.seed } : {}),
+        ...responseFormatFor(a),
       },
       a.signal,
     )) {
@@ -891,6 +909,7 @@ async function bufferChat(deps: AppDeps, res: ServerResponse, a: ExecArgs): Prom
         // be an own property and would change the request body shape.
         ...(a.topK !== undefined ? { topK: a.topK } : {}),
         ...(a.seed !== undefined ? { seed: a.seed } : {}),
+        ...responseFormatFor(a),
       },
       a.signal,
     )) {
@@ -999,6 +1018,55 @@ async function bufferChat(deps: AppDeps, res: ServerResponse, a: ExecArgs): Prom
  * gathered under one is not distinguishable afterwards from evidence gathered
  * without one.
  */
+/**
+ * `response_format`, or nothing at all.
+ *
+ * Spread rather than assigned, so an unconstrained request produces the exact
+ * body it always did. `strict: true` is sent because a schema the runtime would
+ * only partially apply is worse than one it refuses: a partially applied
+ * grammar produces output that validates against nothing anybody named, and the
+ * per-attempt validity check downstream could not say whose fault that was.
+ */
+function responseFormatFor(a: ExecArgs): { responseFormat?: unknown } {
+  if (a.structuredOutput === null) return {};
+  return {
+    // `responseFormat`, the `ChatParams` field — not `response_format`, the
+    // wire key. The backend owns the translation, and it is the only place that
+    // does; a caller that spelled the wire key here would produce a property
+    // `ChatParams` does not have, TypeScript would accept it through the spread,
+    // and the schema would be silently dropped on the way out.
+    responseFormat: {
+      type: 'json_schema',
+      json_schema: { name: a.structuredOutput.name, strict: true, schema: a.structuredOutput.schema },
+    },
+  };
+}
+
+/**
+ * What the record says about how this attempt's output was produced.
+ *
+ * `enforcementRequested` is what Bokahli sent on this request; `confirmation`
+ * is what the instance was proven to do, probed once and cached against the
+ * instance. They are reported side by side and never folded together, because a
+ * deployment that asked and was ignored is a different failure from one that
+ * never asked, and only the first is a runtime contract failure.
+ */
+function structuredOutputFactsFor(a: ExecArgs): StructuredOutputFacts {
+  const confirmation = a.served.qualificationFacts.structuredOutput;
+  if (a.structuredOutput === null) {
+    return { ...unconstrainedFacts(), confirmation };
+  }
+  return {
+    contractVersion: 'bokahli.structured-output/1',
+    regime: 'json_schema',
+    schemaDigest: structuredOutputSchemaDigest(a.structuredOutput.schema),
+    schemaName: a.structuredOutput.name,
+    enforcementRequested: true,
+    enforcementConfirmed: confirmation === null ? null : confirmation.constrained,
+    confirmation,
+  };
+}
+
 async function readEffectiveSampler(deps: AppDeps, a: ExecArgs): Promise<BackendSlotParams | null> {
   const concurrency = a.served.qualificationFacts.attestation.binding.maxConcurrentRequests;
   if (concurrency !== null && concurrency > 1) return null;
@@ -1164,6 +1232,7 @@ async function buildTelemetry(
     gpu: a.gpu,
     velum: await withModelOutput(deps, a.requestId, a.velum, m.completionText, deps.config.velumMode),
     evidencePolicy: a.evidencePolicy,
+    structuredOutput: structuredOutputFactsFor(a),
     tokenCounts,
     sampler,
     attemptLifetime,
@@ -1262,6 +1331,8 @@ function finishNonRouted(
     // before admission was never framed by a policy, and saying otherwise would
     // claim a boundary applied to a request that never had one.
     evidencePolicy,
+    // Likewise null: no generation happened, so no regime produced anything.
+    structuredOutput: null,
     // No model ran, so there is nothing to attribute. `unknown` rather than a
     // zero count: a refused or escalated request produced no tokens, and a zero
     // would aggregate as a measurement of zero rather than as an absence.
@@ -1347,6 +1418,8 @@ interface ParsedChat {
   requestedSampler: SamplerConfig;
   stream: boolean;
   pinnedModelId: string | null;
+  /** Null when the caller asked for no constraint. The common case. */
+  structuredOutput: StructuredOutputRequest | null;
 }
 
 /**
@@ -1462,6 +1535,56 @@ function parseEvidence(raw: unknown, maxRequestBytes: number): { items: Evidence
   return { items };
 }
 
+/**
+ * Bounds on a caller-supplied JSON Schema.
+ *
+ * A schema becomes a grammar, and a grammar is compiled by the runtime. An
+ * unbounded one is an unbounded compile on a process that serves one request at
+ * a time, so the ceiling is here rather than left to llama-server's judgement.
+ * 64 KiB is two orders of magnitude above the campaign's own schemas.
+ */
+const MAX_OUTPUT_SCHEMA_BYTES = 64 * 1024;
+const MAX_SCHEMA_NAME_CHARS = 64;
+
+/**
+ * Parse the optional `structuredOutput` object.
+ *
+ * Strict in the same direction everything else here is strict: an unreadable
+ * request is a refusal, never a silently unconstrained one. Dropping a schema
+ * the caller could not see was dropped would produce a result labelled
+ * "constrained" that no grammar ever touched — which is precisely the confusion
+ * `enforcementRequested` and `enforcementConfirmed` exist to keep apart, and it
+ * would be introduced by the parser before either of them was consulted.
+ *
+ * The schema itself is not validated here. Bokahli is not a JSON Schema
+ * implementation and would be a second, disagreeing one; llama-server compiles
+ * it and answers HTTP 400 when it cannot, which is a real check by the thing
+ * that will actually enforce it. What is checked here is the envelope.
+ */
+function parseStructuredOutput(raw: unknown): { value: StructuredOutputRequest | null } | { error: string } {
+  if (raw === undefined || raw === null) return { value: null };
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    return { error: 'structuredOutput must be an object' };
+  }
+  const o = raw as Record<string, unknown>;
+  for (const k of Object.keys(o)) {
+    if (k !== 'schema' && k !== 'name') return { error: `unknown structuredOutput field "${k}"` };
+  }
+  const schema = o['schema'];
+  if (typeof schema !== 'object' || schema === null || Array.isArray(schema)) {
+    return { error: 'structuredOutput.schema must be a JSON Schema object' };
+  }
+  const name = o['name'];
+  if (name !== undefined && (typeof name !== 'string' || name.length === 0 || name.length > MAX_SCHEMA_NAME_CHARS)) {
+    return { error: `structuredOutput.name must be a string of 1..${MAX_SCHEMA_NAME_CHARS} characters` };
+  }
+  const bytes = Buffer.byteLength(JSON.stringify(schema), 'utf8');
+  if (bytes > MAX_OUTPUT_SCHEMA_BYTES) {
+    return { error: `structuredOutput.schema is ${bytes} bytes, past the ${MAX_OUTPUT_SCHEMA_BYTES} cap` };
+  }
+  return { value: { schema, name: (name as string | undefined) ?? 'bokahli_output' } };
+}
+
 /** Bounds on the evidence channel. Both are enforced before any scan runs. */
 const MAX_EVIDENCE_ITEMS = 32;
 const MAX_EVIDENCE_ID_CHARS = 128;
@@ -1524,11 +1647,19 @@ function parseChatRequest(
   const seed = sampler.seed;
   const requestedSampler: SamplerConfig = sampler;
 
+  // Native only. The OpenAI dialect carries `response_format` for this, and
+  // accepting a Bokahli-shaped field there as well would give one deployment
+  // two ways to ask for the same thing that could disagree about what was
+  // asked.
+  const so = parseStructuredOutput(dialect === 'native' ? body['structuredOutput'] : undefined);
+  if ('error' in so) return { error: so.error };
+  const structuredOutput = so.value;
+
   if (dialect === 'native') {
     const r = body['route'];
     const spec = parseRouteSpec(r);
     if ('error' in spec) return spec;
-    return { spec: spec.spec, messages, evidence: evidence.items, maxTokens, temperature, topP, topK, seed, requestedSampler, stream, pinnedModelId: null };
+    return { spec: spec.spec, messages, evidence: evidence.items, maxTokens, temperature, topP, topK, seed, requestedSampler, stream, pinnedModelId: null, structuredOutput };
   }
 
   // OpenAI dialect. An explicit `bokahli.route` extension wins if present.
@@ -1536,14 +1667,14 @@ function parseChatRequest(
   if (ext && ext['route']) {
     const spec = parseRouteSpec(ext['route']);
     if ('error' in spec) return spec;
-    return { spec: spec.spec, messages, evidence: evidence.items, maxTokens, temperature, topP, topK, seed, requestedSampler, stream, pinnedModelId: null };
+    return { spec: spec.spec, messages, evidence: evidence.items, maxTokens, temperature, topP, topK, seed, requestedSampler, stream, pinnedModelId: null, structuredOutput };
   }
 
   const model = body['model'];
   if (model == null || model === '' || model === 'auto' || model === 'bokahli:auto') {
     return {
       spec: { mode: 'AUTO' },
-      messages, evidence: evidence.items, maxTokens, temperature, topP, topK, seed, requestedSampler, stream, pinnedModelId: null,
+      messages, evidence: evidence.items, maxTokens, temperature, topP, topK, seed, requestedSampler, stream, pinnedModelId: null, structuredOutput,
     };
   }
   if (typeof model !== 'string') return { error: 'model must be a string' };
@@ -1555,7 +1686,7 @@ function parseChatRequest(
     const digest = model.slice(at + 1);
     return {
       spec: { mode: 'EXACT', modelId: id, artifactDigest: digest },
-      messages, evidence: evidence.items, maxTokens, temperature, topP, topK, seed, requestedSampler, stream, pinnedModelId: null,
+      messages, evidence: evidence.items, maxTokens, temperature, topP, topK, seed, requestedSampler, stream, pinnedModelId: null, structuredOutput,
     };
   }
 
@@ -1571,7 +1702,7 @@ function parseChatRequest(
   void deps;
   return {
     spec: { mode: 'AUTO' },
-    messages, evidence: evidence.items, maxTokens, temperature, topP, topK, seed, requestedSampler, stream, pinnedModelId: model,
+    messages, evidence: evidence.items, maxTokens, temperature, topP, topK, seed, requestedSampler, stream, pinnedModelId: model, structuredOutput,
   };
 }
 

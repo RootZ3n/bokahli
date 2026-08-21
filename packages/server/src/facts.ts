@@ -35,6 +35,7 @@ import type {
   RuntimeTokenizerProof,
   TokenizerCanarySuite,
   TokenizerIdentity,
+  StructuredOutputConfirmation,
 } from '@bokahli/contracts';
 import {
   type GgufTokenizerMetadata,
@@ -50,6 +51,7 @@ import {
   resolveTemplateFacts,
   resolveTokenizerIdentity,
   templateDigest,
+  confirmStructuredOutput,
 } from '@bokahli/runtime';
 
 /**
@@ -111,6 +113,19 @@ export interface FactsProviderOptions {
    * false` that looks like a tokenizer problem.
    */
   readonly canarySuite: (a: InternalArtifact) => TokenizerCanarySuite | null;
+  /**
+   * One short generation for the constrained-generation confirmation probe.
+   *
+   * Injected rather than reached for, so a test can state the runtime's
+   * behaviour directly instead of arranging for a GPU to produce it — and so a
+   * deployment that does not want the probe simply does not supply one, and
+   * reports the claim as unproven rather than as false.
+   */
+  readonly probeGenerate?: (
+    alias: string,
+    prompt: string,
+    schema: unknown | null,
+  ) => Promise<string | null>;
   readonly now?: () => Date;
 }
 
@@ -264,6 +279,15 @@ export class QualificationFactsProvider implements FactsSource {
    * wait for the first instead of racing it.
    */
   readonly #probeCache = new Map<string, ProbeCacheEntry>();
+  /**
+   * Keyed by backend instance alone.
+   *
+   * Constrained generation is a property of the serving process, not of an
+   * artifact: the same build either applies `response_format` or does not.
+   * Keying it by artifact as well would re-probe on every model in the catalog
+   * to learn the same fact four times.
+   */
+  readonly #structuredOutputCache = new Map<string, Promise<StructuredOutputConfirmation>>();
   #instanceCache: InstanceFactsCache | null = null;
   #placement: { at: number; instanceId: string | null; value: DevicePlacement } | null = null;
   #generation = 0;
@@ -405,6 +429,7 @@ export class QualificationFactsProvider implements FactsSource {
     const slot = await this.#opts.backend.slotParams().catch(() => null);
     let props: {
       chat_template?: string;
+      model_alias?: string;
       default_generation_settings?: { params?: Record<string, unknown> };
     } = {};
     try {
@@ -485,6 +510,35 @@ export class QualificationFactsProvider implements FactsSource {
       entry.expiresAt = verified ? null : entry.at + FAILED_PROBE_TTL_MS;
     }
 
+    // Constrained generation, confirmed behaviourally against this instance.
+    //
+    // Cached for the life of the instance, like the tokenizer probe and for the
+    // same reason: it describes a process, and it does not survive that process
+    // changing. Unlike the tokenizer probe there is no failure TTL — the probe
+    // spends two generations, and a runtime that was not constraining a moment
+    // ago is not worth re-asking every thirty seconds on a serving path. A
+    // restart clears it, which is when the answer could actually differ.
+    let structuredOutput: StructuredOutputConfirmation | null = null;
+    // The alias the backend reports it is serving, not the one the catalog says
+    // it should be. A probe sent to an alias this process does not hold would
+    // fail and be recorded as "not constrained", which is a false negative about
+    // the runtime produced by a disagreement about names.
+    const servedAlias = props.model_alias ?? null;
+    if (instance.instanceId !== null && this.#opts.probeGenerate !== undefined && servedAlias !== null) {
+      const key = instance.instanceId;
+      const gen = this.#opts.probeGenerate;
+      let pending = this.#structuredOutputCache.get(key);
+      if (pending === undefined) {
+        pending = confirmStructuredOutput({
+          generate: (prompt, schema) => gen(servedAlias, prompt, schema),
+          backendInstanceId: () => key,
+          now,
+        });
+        this.#structuredOutputCache.set(key, pending);
+      }
+      structuredOutput = await pending;
+    }
+
     const tokenizer: TokenizerIdentity = resolveTokenizerIdentity({
       artifactTokenizer: art.tokenizerMetadata,
       runtimeVocabSize: meta.vocabSize,
@@ -559,6 +613,7 @@ export class QualificationFactsProvider implements FactsSource {
       template,
       backendInstance: instance,
       placement,
+      structuredOutput,
       attestation,
     };
   }
@@ -591,6 +646,7 @@ export function unavailableFacts(
   };
   return {
     contractVersion: 'bokahli.qualification-telemetry.v1',
+    structuredOutput: null,
     runtime: {
       provenance: 'observed', observedAt, engine: 'llama.cpp', build: null,
       imageDigest: null, imageDigestBinding: 'unavailable', imageDigestAlgorithm: null,

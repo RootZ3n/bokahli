@@ -8,6 +8,7 @@
  * one. Bokahli does not fabricate scores, rankings, or qualification claims to
  * make that decision look richer than it is.
  */
+import type { StructuredOutputFacts } from './structured-output.js';
 import type { AttemptLifetime, SamplerFacts, TokenCountFacts } from './attestation.js';
 import type { VelumTelemetry } from './velum.js';
 import type {
@@ -431,6 +432,18 @@ export interface RequestTelemetry {
    * them is measuring two deployments as one.
    */
   readonly evidencePolicy: EvidencePolicyFacts | null;
+  /**
+   * Which generation regime produced this output, and whether the runtime was
+   * proven to enforce it.
+   *
+   * Null on paths that never reached a backend. Under `unconstrained` the model
+   * is responsible for its own JSON and invalid output is the model's failure;
+   * under `json_schema` invalid output is impossible if enforcement is real, so
+   * invalid output means enforcement was not — a runtime contract failure, and
+   * never a model result in either direction. The two regimes measure different
+   * capabilities and their results must never be pooled.
+   */
+  readonly structuredOutput: StructuredOutputFacts | null;
 }
 
 /**

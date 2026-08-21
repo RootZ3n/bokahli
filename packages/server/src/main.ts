@@ -194,6 +194,36 @@ async function main(): Promise<void> {
       }
     },
     canarySuite: (a) => canaries.get(a.digest) ?? null,
+    // Two short generations, once per backend instance, proving that
+    // `response_format` is actually applied on this process. llama-server
+    // exposes no field that says so, and a runtime that silently dropped it
+    // would credit a *model* with output a grammar produced — the same shape of
+    // error as the placement bug, aimed at the thing being qualified. Failures
+    // leave the claim unproven rather than false: a probe that could not run has
+    // said nothing about the runtime.
+    probeGenerate: async (alias, prompt, schema) => {
+      try {
+        return await backend.chatOnce(
+          alias,
+          {
+            messages: [{ role: 'user', content: prompt }],
+            maxTokens: 48,
+            temperature: 0,
+            ...(schema === null
+              ? {}
+              : {
+                responseFormat: {
+                  type: 'json_schema',
+                  json_schema: { name: 'bokahli_grammar_probe', strict: true, schema },
+                },
+              }),
+          },
+          20_000,
+        );
+      } catch {
+        return null;
+      }
+    },
   });
 
   // Started before the server binds, so the first request meets a pool that has

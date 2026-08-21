@@ -6,6 +6,8 @@
  * (llama-server) reports its model as a path; that value is an internal
  * implementation detail and must never cross the Bokahli API boundary.
  */
+import type { StructuredOutputConfirmation } from './structured-output.js';
+
 
 import type {
   BackendInstanceIdentity, DevicePlacement, QualificationAttestation,
@@ -121,6 +123,16 @@ export interface QualificationFacts {
   readonly template: TemplateFacts;
   readonly backendInstance: BackendInstanceIdentity;
   readonly placement: DevicePlacement;
+  /**
+   * Whether this instance genuinely constrains generation when asked to.
+   *
+   * Null when the confirmation probe has not run. `response_format` is a
+   * request and llama-server exposes no field saying it applied one, so this is
+   * behavioural — see `confirmStructuredOutput`. It belongs to the *instance*,
+   * not to a request: a deployment either constrains or it does not, and a
+   * per-request claim would be the same fact re-asserted with no new evidence.
+   */
+  readonly structuredOutput: StructuredOutputConfirmation | null;
   readonly attestation: QualificationAttestation;
 }
 
