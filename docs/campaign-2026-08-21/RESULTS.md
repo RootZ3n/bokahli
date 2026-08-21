@@ -202,10 +202,28 @@ same sampler, same evidence policy, `json_schema` regime: 6 of 6 valid. A
 grammar compiled from the output schema cannot emit an invalid escape, so the
 failure mode is unreachable.
 
-**Not reproduced on IQ3_XXS this campaign** — zero `\u{...}` sequences across 12
-attempts in both regimes, 6/6 valid. The defect is artifact-dependent and, on
-this evidence, not deterministic per artifact. That is a reason to keep the raw
-completions, not a reason to assume it is gone.
+**It persists on IQ3_XXS too — Stage A was simply too small to see it.** Two
+fixtures × 3 repeats gave 6/6 valid and zero `\u{...}` sequences, which looked
+like absence. The full triage pack, 10 fixtures × 3 repeats:
+
+    unconstrained   24 of 30 valid    6 failures
+    json_schema     30 of 30 valid    0 failures
+
+All six are this defect, and they are **deterministic per fixture**:
+`tlt-004-infra-vs-assertion` 3 of 3, `tlt-005-truncated` 3 of 3. Every failing
+completion contains `\u{3e}`; every passing one does not.
+
+The defect is therefore a property of the artifact *and* the particular line the
+model chooses to quote — which is why it fired on IQ3_XXS in the previous
+campaign, missed it on two fixtures here, and returned the moment the fixture
+set widened. **A two-fixture Stage would have reported this artifact as clean.**
+
+### The answer to the campaign's question
+
+The structured-output defect **persists under unconstrained execution and is
+resolved only by constrained execution.** All three artifacts that reached a
+wide enough sample show it unconstrained on at least one fixture; all three are
+100% valid under the same schemas with a grammar attached.
 
 ### The control is the worst of the four at citation grounding
 
