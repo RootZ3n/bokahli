@@ -20,7 +20,14 @@
 # Every artifact gets its own directory of records, completions and identity,
 # per regime. Nothing is merged here; merging is what the exporter refuses.
 #
-#   scripts/campaign-stage.sh <modelId> <profile.json> <suiteId> <schema.json> <outDir> [repeats]
+#   scripts/campaign-stage.sh <modelId> <profile.json> <suiteId> <schema.json> \
+#                             <outDir> [repeats] [split]
+#
+# `split` defaults to `evaluation`, which is the Stage A bar: a held-out subset,
+# and the only split the exporter will emit as qualification evidence without
+# being told to. Stage B passes `both` to run the whole fixture pack — a wider
+# measurement, and one whose development-split attempts are for reading rather
+# than for export.
 #
 set -euo pipefail
 
@@ -30,12 +37,13 @@ SUITE="${3:?suiteId}"
 SCHEMA="${4:?output schema json}"
 OUTDIR="${5:?output directory}"
 REPEATS="${6:-3}"
+SPLIT="${7:-evaluation}"
 
 BOKAHLI=/home/zen/repos/bokahli
 LUAK=/home/zen/repos/luak
 CPUS=0-7,10-23
 
-echo "══ ${MODEL} — ${SUITE} × ${REPEATS} ═══════════════════════════════════"
+echo "══ ${MODEL} — ${SUITE} × ${REPEATS} (${SPLIT}) ═══════════════════════════"
 mkdir -p "$OUTDIR"
 
 echo "── swapping runtime"
@@ -69,7 +77,7 @@ taskset -c "$CPUS" node "$LUAK/scripts/run-local-stage.mjs" \
   --model "$MODEL" \
   --suite "$SUITE" \
   --repeats "$REPEATS" \
-  --split evaluation \
+  --split "$SPLIT" \
   --regimes unconstrained,json_schema \
   --schema "$SCHEMA" \
   --out-dir "$OUTDIR"

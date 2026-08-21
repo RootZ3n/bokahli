@@ -15,7 +15,14 @@ StartLimitBurst=5
 
 [Service]
 Type=exec
-EnvironmentFile=%h/.config/bokahli/shared.env
+# shared.env is deliberately NOT loaded here.
+#
+# Its only variable is BOKAHLI_RUNTIME_API_KEY, and since the key now arrives
+# by --api-key-file, loading it would put the secret in this process's
+# environment for no reason. /proc/<pid>/environ is owner-only, so that was
+# not a disclosure, but a secret a process never needs is a secret it should
+# never hold. bokahli.service still loads shared.env: it is this backend's
+# client and needs the value to send.
 EnvironmentFile=%h/.config/bokahli/runtime.env
 WorkingDirectory=%h
 
@@ -31,25 +38,41 @@ ExecStartPre=/home/zen/repos/bokahli/scripts/require-gpu.sh
 # --metrics enables the Prometheus endpoint Bokahli's telemetry authority needs.
 # --no-webui removes llama.cpp's own UI: Bokahli owns the human surface.
 # Prompt contents are NOT logged: -v / --log-verbose is deliberately absent.
-ExecStart=/home/zen/llama.cpp/build/bin/llama-server \
-    --model ${BOKAHLI_MODEL_PATH} \
-    --alias ${BOKAHLI_MODEL_ALIAS} \
-    --host 127.0.0.1 \
-    --port ${BOKAHLI_RUNTIME_PORT} \
-    --ctx-size ${BOKAHLI_CTX} \
-    --parallel ${BOKAHLI_SLOTS} \
-    --n-gpu-layers 999 \
-    --cpu-moe \
-    --flash-attn on \
-    --reasoning off \
-    --metrics \
-    --api-key ${BOKAHLI_RUNTIME_API_KEY} \
-    --no-webui \
-    --log-timestamps
+# The argv is built by scripts/runtime-exec.sh, which validates every value and
+# then `exec`s llama-server, so this unit's MainPID *is* llama-server and its
+# /proc/<pid>/cmdline is the real argv Bokahli reads placement flags back from.
+#
+# It moved out of this line because a placement profile is a set of requests and
+# comparing profiles means changing them. Carried as literals here, changing a
+# profile meant editing this unit between measurements — and a measurement whose
+# configuration was hand-edited between runs is one nobody can state afterwards.
+# The defaults in that script reproduce this line exactly:
+# --n-gpu-layers 999 --cpu-moe --flash-attn on --reasoning off.
+ExecStart=/home/zen/repos/bokahli/scripts/runtime-exec.sh
+
+# The runtime API key is passed by FILE, not on the command line.
+#
+# `--api-key KEY` put the key in argv, and /proc/<pid>/cmdline is mode 444 —
+# world-readable. Any local process could read the key that authenticates every
+# generation request to this backend. /proc/<pid>/environ is mode 400, so an
+# environment variable would be better, but a 0600 file the process reads once
+# is better still and is what the pinned build supports.
+#
+# The key file is ~/.config/bokahli/runtime-api-key, mode 0600. shared.env keeps
+# BOKAHLI_RUNTIME_API_KEY because Bokahli is this backend's client and still
+# needs the value to send; what changed is that the *server* no longer publishes
+# it to the process table.
 
 # Readiness gate: `systemctl start` does not return until the model is loaded
 # and /health reports ok, so dependent units never start against a cold runtime.
-ExecStartPost=/bin/bash -c 'for i in $(seq 1 240); do curl -sf --max-time 2 http://127.0.0.1:${BOKAHLI_RUNTIME_PORT}/health >/dev/null && exit 0; sleep 1; done; echo "runtime did not become ready within 240s" >&2; exit 1'
+#
+# It also gives up the moment the main process is gone. Without that check a
+# model that fails to load — VRAM exhausted, artifact unreadable — still spent
+# the full 240-second window curling a port nothing was listening on, and
+# `systemctl start` blocked for four minutes on a failure that was decided in
+# 1.4 seconds. Measured during the 2026-08-21 placement sweep, where Gemma 26B
+# at `--n-cpu-moe 8` does not fit in 12 GiB and every retry cost four minutes.
+ExecStartPost=/bin/bash -c 'for i in $(seq 1 240); do curl -sf --max-time 2 http://127.0.0.1:${BOKAHLI_RUNTIME_PORT}/health >/dev/null && exit 0; kill -0 ${MAINPID} 2>/dev/null || { echo "runtime exited during load; not waiting out the readiness window" >&2; exit 1; }; sleep 1; done; echo "runtime did not become ready within 240s" >&2; exit 1'
 
 # Placement assertion: the model is loaded, so prove it landed where it was
 # meant to. A CUDA-serving llama-server holds /dev/nvidia-uvm open; a CPU-only
