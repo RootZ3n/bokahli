@@ -296,7 +296,26 @@ present, before any scan verdict is consulted, for exactly this reason.
    it. The 8k/16k/32k fill tiers, and the position-of-fact measurements the
    context generator exists for, remain unrun.
 
-5. **The `--n-cpu-moe 8` profile runs at 88% of device memory.** 10846 MiB of
+5. **Luak's per-attempt precondition can abort a healthy run on its own
+   timeout.** IQ3_XXS's reconnaissance run under the constrained regime stopped
+   at attempt 18 of 27 with `attempt 18: /health/ready did not return 200`.
+   Bokahli logged no warning or error in that window; the precondition's
+   `AbortSignal.timeout(10_000)` simply elapsed against an endpoint that
+   performs a full attestation — backend `/props`, `/slots`, `/v1/models`,
+   instance and placement probes — on a runtime serving one request at a time.
+
+   The precondition itself is right, and it did the right thing: it refused to
+   continue against a deployment it could not confirm, and the partial run is
+   preserved rather than retried. What is wrong is that a *timeout* and an
+   *unhealthy deployment* abort with the same message, so a slow answer is
+   recorded as a failed one.
+
+   **Not changed during the campaign.** Q2_K's Stage B had to run the same
+   harness IQ3_XXS's did; a fix applied between them would have made the two
+   survivors incomparable, which costs more than nine attempts. The affected run
+   is reported as partial and is not treated as complete evidence.
+
+6. **The `--n-cpu-moe 8` profile runs at 88% of device memory.** 10846 MiB of
    12282, measured stable across three runs and a full Stage. It leaves little
    room for a foreign allocation, and Bokahli's GPU-lease check would not
    prevent one — it refuses to *start* against a foreign holder, not to be
