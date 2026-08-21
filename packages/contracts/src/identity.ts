@@ -10,7 +10,7 @@ import type { StructuredOutputConfirmation } from './structured-output.js';
 
 
 import type {
-  BackendInstanceIdentity, DevicePlacement, QualificationAttestation,
+  BackendInstanceIdentity, DevicePlacement, QualificationAttestation, RuntimeInvocation,
   RuntimeFacts, TemplateFacts, TokenizerIdentity,
 } from './attestation.js';
 
@@ -133,6 +133,13 @@ export interface QualificationFacts {
    * per-request claim would be the same fact re-asserted with no new evidence.
    */
   readonly structuredOutput: StructuredOutputConfirmation | null;
+  /**
+   * The flags the backend process was started with, read from its own argv.
+   *
+   * Requested, never observed. A placement profile is exactly this set, and a
+   * throughput number with no configuration attached is a number about nothing.
+   */
+  readonly runtimeInvocation: RuntimeInvocation;
   readonly attestation: QualificationAttestation;
 }
 

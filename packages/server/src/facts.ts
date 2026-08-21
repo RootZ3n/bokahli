@@ -46,6 +46,7 @@ import {
   probeExecutablePath,
   probeRuntimeTokenizer,
   probeGpuFlags,
+  probeInvocation,
   probeRuntimeFacts,
   readGgufTokenizerMetadata,
   resolveTemplateFacts,
@@ -388,6 +389,7 @@ export class QualificationFactsProvider implements FactsSource {
     const instance = await probeBackendInstance(pid);
     const ambiguousPid = pids.length > 1;
     const flags = await probeGpuFlags(pid);
+    const invocationFlags = await probeInvocation(pid);
 
     // Runtime facts are cached against the instance, because the serving image
     // cannot change without the process changing.
@@ -613,6 +615,13 @@ export class QualificationFactsProvider implements FactsSource {
       template,
       backendInstance: instance,
       placement,
+      runtimeInvocation: {
+        provenance: 'observed',
+        observedAt: now().toISOString(),
+        requestedGpuLayers: flags.requestedGpuLayers,
+        cpuOffloadEnabled: flags.cpuOffloadEnabled,
+        ...invocationFlags,
+      },
       structuredOutput,
       attestation,
     };
@@ -647,6 +656,12 @@ export function unavailableFacts(
   return {
     contractVersion: 'bokahli.qualification-telemetry.v1',
     structuredOutput: null,
+    runtimeInvocation: {
+      provenance: 'observed', observedAt, requestedGpuLayers: null, cpuOffloadEnabled: null,
+      cpuMoeLayers: null, requestedReasoning: null, flashAttention: null,
+      requestedContextTokens: null, requestedSlots: null,
+      limitation: 'no backend was contacted',
+    },
     runtime: {
       provenance: 'observed', observedAt, engine: 'llama.cpp', build: null,
       imageDigest: null, imageDigestBinding: 'unavailable', imageDigestAlgorithm: null,

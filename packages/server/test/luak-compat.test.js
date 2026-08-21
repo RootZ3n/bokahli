@@ -69,7 +69,7 @@ const PROVEN = {
 };
 
 const IDENTITY = (tokenCountSource) => ({
-  identityVersion: 'local-identity-1.0.0',
+  identityVersion: 'local-identity-1.1.0',
   artifact: {
     modelId: 'qwen3.5-35b-a3b.q2-k',
     artifactDigest: `sha256:${'49'.repeat(32)}`,
@@ -93,6 +93,20 @@ const IDENTITY = (tokenCountSource) => ({
   },
   context: { configuredTokens: 32768, effectiveMaxTokens: 32768, tierLabel: 'control', tokenCountSource },
   concurrency: { slots: 1, maxConcurrentRequests: 1, batchSize: null },
+  // Luak identity 1.1.0. A result that cannot say which generation regime
+  // produced it is not evidence about either of them, and Luak's own identity
+  // check refuses the bundle rather than letting the omission travel — which is
+  // what this compatibility suite exists to catch on Bokahli's side of the wire.
+  generation: {
+    regime: 'unconstrained',
+    contractVersion: 'bokahli.structured-output/1',
+    outputSchemaDigest: null,
+    enforcementRequested: false,
+    enforcementConfirmed: null,
+    evidencePolicyVersion: 'bokahli.evidence-policy/1',
+    evidencePolicyDigest: `sha256:${'f2'.repeat(32)}`,
+    reasoningMode: 'off',
+  },
   fixtureSuiteId: 'local-test-log-triage',
   fixtureSuiteVersion: '1.0.0',
   verificationRegimeVersion: 'local-regime-1.0.0',

@@ -212,6 +212,8 @@ async function handleReady(deps: AppDeps, res: ServerResponse, requestId: string
      * the request that would depend on it.
      */
     structuredOutput: facts?.structuredOutput ?? null,
+    /** The flags the backend was started with. A placement profile's identity. */
+    runtimeInvocation: facts?.runtimeInvocation ?? null,
     attestation: facts?.attestation ?? null,
     qualification: {
       authority: 'luak',

@@ -421,6 +421,46 @@ export interface BackendInstanceIdentity extends Observed {
   readonly unavailableReasons: readonly string[];
 }
 
+/**
+ * How the backend process was started, read from its own argv.
+ *
+ * Requested, never observed — that distinction is the whole reason this exists
+ * separately from everything else. `--n-gpu-layers 999` is what was asked for;
+ * `DevicePlacement.backendHoldsDevice` is what happened, and Phase 1 learned the
+ * hard way that they can disagree for hours without anything noticing.
+ *
+ * Reasoning mode is here for the same reason and a sharper one. `--reasoning
+ * off` changes the *generation prompt* — on Qwen3.5 it injects an empty think
+ * block — so a model measured with reasoning suppressed has not been measured
+ * with it available. The runtime does not report the flag back: `/slots` shows
+ * `reasoning_format: "deepseek"`, which is the parser that would extract think
+ * tags, not a statement about whether thinking was enabled. Reading the flag
+ * from argv is the only way to know what was asked for, and a campaign that
+ * recorded the parser name instead would be recording a different fact under
+ * the right label.
+ *
+ * Values only, never strings lifted from the process. A raw command line can
+ * carry an API key or a model path, and none of that may reach a response; the
+ * reasoning mode is admitted as a string because it is drawn from a closed set
+ * of three known values and anything else is reported as unrecognised.
+ */
+export interface RuntimeInvocation extends Observed {
+  readonly requestedGpuLayers: number | null;
+  readonly cpuOffloadEnabled: boolean | null;
+  /** `--n-cpu-moe N`: how many layers' experts were held off-device. */
+  readonly cpuMoeLayers: number | null;
+  /** `--reasoning on|off|auto`, or null when the flag was absent. */
+  readonly requestedReasoning: 'on' | 'off' | 'auto' | null;
+  /** `--flash-attn on|off|auto`, or null when absent. */
+  readonly flashAttention: string | null;
+  /** `--ctx-size`. The configured window, distinct from what a request used. */
+  readonly requestedContextTokens: number | null;
+  /** `--parallel`. Slots the process was started with. */
+  readonly requestedSlots: number | null;
+  /** Why the argv could not be read, when it could not. */
+  readonly limitation: string | null;
+}
+
 // ---------------------------------------------------------------------------
 // device placement
 // ---------------------------------------------------------------------------

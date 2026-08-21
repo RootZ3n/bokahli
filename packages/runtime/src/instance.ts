@@ -103,6 +103,68 @@ export function parseGpuFlags(cmdline: string): {
 }
 
 /**
+ * The rest of the start flags a qualification profile is keyed on.
+ *
+ * Separate from `parseGpuFlags` so the placement path keeps its exact shape and
+ * its exact caller. Same discipline: numbers and closed-set strings only, never
+ * a value lifted verbatim out of a command line that may hold a key or a path.
+ */
+export function parseInvocationFlags(cmdline: string): {
+  cpuMoeLayers: number | null;
+  requestedReasoning: 'on' | 'off' | 'auto' | null;
+  flashAttention: string | null;
+  requestedContextTokens: number | null;
+  requestedSlots: number | null;
+} {
+  const argv = cmdline.split('\0').filter((a) => a.length > 0);
+  const numAfter = (...names: string[]): number | null => {
+    for (let i = 0; i < argv.length; i++) {
+      const a = argv[i] as string;
+      if (names.includes(a)) {
+        const n = Number(argv[i + 1]);
+        if (Number.isFinite(n)) return n;
+      }
+      for (const nm of names) {
+        if (a.startsWith(`${nm}=`)) {
+          const n = Number(a.slice(nm.length + 1));
+          if (Number.isFinite(n)) return n;
+        }
+      }
+    }
+    return null;
+  };
+  const wordAfter = (...names: string[]): string | null => {
+    for (let i = 0; i < argv.length; i++) {
+      const a = argv[i] as string;
+      if (names.includes(a)) {
+        const v = argv[i + 1];
+        // A closed vocabulary, matched exactly. Anything else is reported as
+        // unrecognised rather than echoed: the next argv element after a flag
+        // is not guaranteed to be that flag's value.
+        if (v === 'on' || v === 'off' || v === 'auto') return v;
+        return 'unrecognised';
+      }
+      for (const nm of names) {
+        if (a.startsWith(`${nm}=`)) {
+          const v = a.slice(nm.length + 1);
+          return v === 'on' || v === 'off' || v === 'auto' ? v : 'unrecognised';
+        }
+      }
+    }
+    return null;
+  };
+  const reasoning = wordAfter('--reasoning', '-rea');
+  return {
+    cpuMoeLayers: numAfter('--n-cpu-moe', '-ncmoe'),
+    requestedReasoning:
+      reasoning === 'on' || reasoning === 'off' || reasoning === 'auto' ? reasoning : null,
+    flashAttention: wordAfter('--flash-attn', '-fa'),
+    requestedContextTokens: numAfter('--ctx-size', '-c'),
+    requestedSlots: numAfter('--parallel', '-np'),
+  };
+}
+
+/**
  * Establish the identity of one backend process.
  *
  * Never throws. Every source that fails contributes a reason and leaves its
@@ -206,6 +268,40 @@ export async function probeExecutablePath(
     return argv0;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Read the full start-flag set the backend was launched with. Never throws.
+ *
+ * The one place a placement profile's identity comes from. A profile is a set
+ * of requests — layers, expert offload, reasoning, context, slots — and a
+ * measurement that cannot name them is a number with no configuration attached.
+ */
+export async function probeInvocation(
+  pid: number | null,
+  sources: InstanceProbeSources = REAL_SOURCES,
+): Promise<{
+  cpuMoeLayers: number | null;
+  requestedReasoning: 'on' | 'off' | 'auto' | null;
+  flashAttention: string | null;
+  requestedContextTokens: number | null;
+  requestedSlots: number | null;
+  limitation: string | null;
+}> {
+  const empty = {
+    cpuMoeLayers: null, requestedReasoning: null, flashAttention: null,
+    requestedContextTokens: null, requestedSlots: null,
+  };
+  if (pid === null) return { ...empty, limitation: 'no backend pid was resolved' };
+  try {
+    return { ...parseInvocationFlags(await sources.readCmdline(pid)), limitation: null };
+  } catch {
+    // The reason is fixed, not the exception's message. A read failure on
+    // /proc/<pid>/cmdline puts that path in the message, and `E5` in
+    // b2-audit-exploits proves the point it is defending: an internal path that
+    // rides out inside an error string has still crossed the API boundary.
+    return { ...empty, limitation: 'the backend process argv could not be read' };
   }
 }
 
