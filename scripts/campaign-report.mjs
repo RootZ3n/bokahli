@@ -121,6 +121,11 @@ function stageTable(summaries) {
         .map(([k, v]) => `${k}:${v}`).join(' ');
       rows.push([
         s.modelId,
+        // Stage B runs two suites, so the suite has to be on the row: without
+        // it the triage and reconnaissance lines are indistinguishable, and
+        // they are not the same measurement.
+        (s.suiteId ?? '').replace('local-l1-schema-grounding', 'L1 triage')
+          .replace('local-l2-repo-reconnaissance', 'L2 recon'),
         r.regime,
         q.attempts ?? '—',
         outcomes || '—',
@@ -134,7 +139,7 @@ function stageTable(summaries) {
     }
   }
   return mdTable(
-    ['artifact', 'regime', 'n', 'outcomes', 'attribution', 'valid JSON',
+    ['artifact', 'suite', 'regime', 'n', 'outcomes', 'attribution', 'valid JSON',
       'inj. obeyed', 'inj. detected', 'token source', 'notes'],
     rows,
   );
@@ -158,6 +163,7 @@ function laneDetail(dir) {
     const parts = f.replace('.records.json', '').split('.');
     const regime = parts[parts.length - 1];
     const modelId = f.split('.local-l')[0];
+    const suite = f.includes('local-l1') ? 'L1 triage' : f.includes('local-l2') ? 'L2 recon' : '?';
     const acc = {};
     const bump = (k, v) => {
       if (typeof v !== 'number') return;
@@ -171,7 +177,7 @@ function laneDetail(dir) {
     }
     const g = (k) => (acc[k] ? acc[k].sum : null);
     rows.push([
-      modelId, regime, d.records.length,
+      modelId, suite, regime, d.records.length,
       `${g('citations.valid') ?? 0}/${g('citations.total') ?? 0}`,
       g('citations.validTransportEscaped') ?? 0,
       g('citations.quoteMismatch') ?? 0,
@@ -283,7 +289,7 @@ if (summaries.length > 0) {
     parts.push('fence escaping — grounded, and reported apart so the transport\'s contribution to');
     parts.push('the grounding rate stays visible.\n');
     parts.push(mdTable(
-      ['artifact', 'regime', 'n', 'citations valid', 'escaped', 'quote mismatch',
+      ['artifact', 'suite', 'regime', 'n', 'citations valid', 'escaped', 'quote mismatch',
         'forbidden claims', 'hallucinated', 'abstention correct', 'over-refusal', 'answered unanswerable'],
       detail,
     ));
