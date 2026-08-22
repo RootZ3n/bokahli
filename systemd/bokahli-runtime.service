@@ -88,9 +88,19 @@ ExecStartPost=/home/zen/repos/bokahli/scripts/assert-gpu-placement.sh
 Restart=on-failure
 RestartSec=5
 TimeoutStartSec=300
-TimeoutStopSec=45
+# SHUTDOWN. llama-server ignores SIGTERM: the campaign measured a 45-second
+# TimeoutStopSec elapse followed by SIGKILL, ~65 seconds of wall time for what
+# should be instant, twice per model swap. The same binary exits cooperatively
+# on SIGINT in 0.017-0.026 seconds, measured on both the control and the 27B.
+#
+# So SIGINT is the stop signal, and the timeout is sized for the measured exit
+# rather than for a signal the process does not handle. Ten seconds is roughly
+# 400x the observed exit and still bounded; SendSIGKILL keeps the guarantee that
+# a wedged backend cannot hold the port forever.
+TimeoutStopSec=10
 KillMode=mixed
-KillSignal=SIGTERM
+KillSignal=SIGINT
+SendSIGKILL=yes
 
 StandardOutput=journal
 StandardError=journal

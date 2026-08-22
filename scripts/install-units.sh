@@ -84,6 +84,36 @@ for u in bokahli-runtime.service bokahli.service; do
   echo "install $dst"
 done
 
+# DROP-INS ARE PART OF THE UNIT, and until now they were not installed at all.
+#
+# The CPU exclusion that keeps every backend off logical CPUs 8 and 9 lived only
+# on the deployed host: it was written once by hand and never tracked. A fresh
+# install, or a restore from this repository onto a new machine, produced a unit
+# that started happily and computed wrong base64 at ~1.1e-3 with no diagnostic.
+# A safety property that survives only in one machine's /home is not a safety
+# property, so the directory ships and installs with the unit it belongs to.
+for u in bokahli-runtime.service bokahli.service; do
+  srcdir="$REPO/systemd/$u.d"
+  [ -d "$srcdir" ] || continue
+  dstdir="$UNIT_DIR/$u.d"
+  mkdir -p "$dstdir"
+  for f in "$srcdir"/*.conf; do
+    [ -e "$f" ] || continue
+    dst="$dstdir/$(basename "$f")"
+    if [ -f "$dst" ] && cmp -s "$f" "$dst"; then
+      echo "same    $dst"
+      continue
+    fi
+    if [ -f "$dst" ] && [ "$dst" -nt "$f" ] && [ "$FORCE" -eq 0 ]; then
+      echo "REFUSE  $dst is newer than $f" >&2
+      regressed=1
+      continue
+    fi
+    install -m 644 "$f" "$dst"
+    echo "install $dst"
+  done
+done
+
 if [ "$regressed" -ne 0 ]; then
   echo >&2
   echo "install-units: refused to regress a newer deployed unit; nothing reloaded." >&2
