@@ -81,6 +81,63 @@ case "$FLASH_ATTN" in on|off|auto) ;; *) die "BOKAHLI_FLASH_ATTN must be on, off
 REASONING="${BOKAHLI_REASONING:-off}"
 case "$REASONING" in on|off|auto) ;; *) die "BOKAHLI_REASONING must be on, off or auto" ;; esac
 
+# ── profile parameters ───────────────────────────────────────────────────────
+#
+# These arrive already validated: the activation authority parses a profile,
+# bounds every integer and closes every enum, and writes VALUES here. They are
+# re-checked anyway, because this script is also started by systemd straight
+# from runtime.env, where a human edited the file and nothing validated it.
+#
+# Each is checked as a value and quoted into the argv. There is deliberately no
+# variable through which a caller can pass an extra FLAG: the argv below is
+# constructed in full, so an option this script does not write cannot be set.
+
+# KV cache types. A closed set, matching llama.cpp's accepted values. An unknown
+# type here would otherwise reach the backend and fail after the model had
+# already been read off disk.
+CACHE_K="${BOKAHLI_CACHE_TYPE_K:-f16}"
+CACHE_V="${BOKAHLI_CACHE_TYPE_V:-f16}"
+for c in "$CACHE_K" "$CACHE_V"; do
+  case "$c" in
+    f32|f16|bf16|q8_0|q5_1|q5_0|q4_1|q4_0) ;;
+    *) die "cache type must be one of f32|f16|bf16|q8_0|q5_1|q5_0|q4_1|q4_0, got '$c'" ;;
+  esac
+done
+
+# Thread counts. Bounded at 22 because logical CPUs 8 and 9 are excluded from
+# this service for miscomputation (see 10-cpu-exclusion.conf); asking for 24
+# would be asking for two cores this unit is not allowed to touch.
+bounded_int() { # name value lo hi
+  local n="$1" v="$2" lo="$3" hi="$4"
+  [[ "$v" =~ ^[0-9]+$ ]] || die "$n must be a non-negative integer, got '$v'"
+  (( v >= lo && v <= hi )) || die "$n must be in [$lo, $hi], got $v"
+}
+THREADS="${BOKAHLI_THREADS:-}"
+THREADS_BATCH="${BOKAHLI_THREADS_BATCH:-}"
+THREAD_ARGS=()
+if [[ -n "$THREADS" ]]; then
+  bounded_int BOKAHLI_THREADS "$THREADS" 1 22
+  THREAD_ARGS+=(--threads "$THREADS")
+fi
+if [[ -n "$THREADS_BATCH" ]]; then
+  bounded_int BOKAHLI_THREADS_BATCH "$THREADS_BATCH" 1 22
+  THREAD_ARGS+=(--threads-batch "$THREADS_BATCH")
+fi
+
+BATCH_ARGS=()
+if [[ -n "${BOKAHLI_BATCH:-}" ]]; then
+  bounded_int BOKAHLI_BATCH "$BOKAHLI_BATCH" 1 8192
+  BATCH_ARGS+=(--batch-size "$BOKAHLI_BATCH")
+fi
+if [[ -n "${BOKAHLI_UBATCH:-}" ]]; then
+  bounded_int BOKAHLI_UBATCH "$BOKAHLI_UBATCH" 1 8192
+  BATCH_ARGS+=(--ubatch-size "$BOKAHLI_UBATCH")
+fi
+
+bounded_int BOKAHLI_CTX "$BOKAHLI_CTX" 512 262144
+bounded_int BOKAHLI_SLOTS "$BOKAHLI_SLOTS" 1 8
+bounded_int BOKAHLI_GPU_LAYERS "$GPU_LAYERS" 0 999
+
 # ── what is deliberately absent ──────────────────────────────────────────────
 #
 # No mmproj, no draft model, no speculative decoding, no Eagle, no MTP, no LoRA.
@@ -98,6 +155,10 @@ exec "$LLAMA" \
   --parallel "$BOKAHLI_SLOTS" \
   --n-gpu-layers "$GPU_LAYERS" \
   "${MOE_ARGS[@]}" \
+  --cache-type-k "$CACHE_K" \
+  --cache-type-v "$CACHE_V" \
+  "${THREAD_ARGS[@]}" \
+  "${BATCH_ARGS[@]}" \
   --flash-attn "$FLASH_ATTN" \
   --reasoning "$REASONING" \
   --metrics \
