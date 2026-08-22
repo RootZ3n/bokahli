@@ -92,7 +92,7 @@
         "license": "apache-2.0",
         "quantMethod": "importance-matrix (imatrix)",
         "publishedSha256": "c385920c6b956dc8c69c1ec1ebd750615c483734c949ef1f85d916df6cd9752d",
-        "producerKldSameTopP": "89.764 ± 0.079 %"
+        "producerKldSameTopP": "89.764 \u00b1 0.079 %"
       },
       "capabilities": {
         "chat": true,
@@ -307,6 +307,140 @@
         "hostRssGiB": 2.54,
         "decodeTokensPerSecond": 57.3,
         "prefillTokensPerSecond": 3495.7
+      }
+    },
+    {
+      "modelId": "qwen38-27b.iq3-xxs",
+      "displayName": "Qwen3.8 27B (IQ3_XXS)",
+      "digest": "sha256:3b058d6548f216f06ccaf8c6caf8019db23a8ec5a973ec6e84b525255a0ea481",
+      "artifactPath": "/home/zen/models/Qwen3.8-27B-IQ3_XXS.gguf",
+      "tokenizerCanaryPath": "canaries/qwen38-27b.iq3-xxs.canary.json",
+      "runtimeAlias": "qwen38-27b.iq3-xxs",
+      "backend": "primary",
+      "provenance": {
+        "baseModel": "Qwen/Qwen3.8-27B",
+        "baseModelRevision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+        "ggufPublisher": "bartowski/Qwen3.8-27B-GGUF",
+        "ggufRepoRevision": "f0eec4a4bb4975114a030d048952d83c0a53c034",
+        "license": "apache-2.0",
+        "imatrix": "Qwen3.8-27B-imatrix.gguf (bartowski; calibration-v6.txt published in-repo)",
+        "verifiedAt": "2026-08-22",
+        "digestVerification": "sha256 verified three times: after download, after atomic placement, and on re-hash in place. HTTP x-linked-etag from the pinned GGUF revision matched all three."
+      },
+      "facts": {
+        "format": "gguf",
+        "architecture": "qwen35",
+        "quantization": "IQ3_XXS",
+        "ggufFileType": 23,
+        "sizeBytes": 12626773600,
+        "parameterCount": 27320697856,
+        "activeParameterCount": 27320697856,
+        "expertCount": null,
+        "expertUsedCount": null,
+        "blockCount": 65,
+        "contextTrainTokens": 262144,
+        "vocabSize": 248320,
+        "embeddingLength": 5120,
+        "attentionHeadCount": 24,
+        "attentionHeadCountKv": 4,
+        "tokenizerFamily": "gpt2",
+        "tokenizerPretokenizer": "qwen35",
+        "tokenizerMetadataDigest": "sha256:73e1fde6afecb78e18879391240922de94331a3516b43815d6c4897b237a425f",
+        "chatTemplateDigest": "sha256:c3cf9e34abf4f9e36c2d72165aa9c132d3e2a725b6c2586aaa3a8af9d7a81041"
+      },
+      "capabilities": {
+        "chat": true,
+        "completion": true,
+        "tools": true,
+        "vision": false,
+        "audio": false,
+        "embedding": false,
+        "reasoningEffort": true
+      },
+      "qualification": {
+        "status": "INSTALLED_UNQUALIFIED",
+        "authority": "none",
+        "evidenceRef": null,
+        "qualifiedTaskClasses": [],
+        "note": "Installed and served as an appliance model. Luak has issued no qualification evidence for this artifact. Bokahli makes NO claim that it is fit for any task class. Measured on Mushin against the resident Qwen3.5-35B-A3B Q2_K control over 18 bounded fixtures: it matched the control's grounding and schema compliance ONLY under constrained (JSON-schema) generation, and was 2.4x slower per task. Unconstrained it emitted citations as bare strings rather than {sourceId, quote} objects and lost 4 of 18. No task class showed a measured advantage over the control."
+      },
+      "operational": {
+        "servedContextTokens": 8192,
+        "maxConcurrentRequests": 1,
+        "measuredAt": "2026-08-22T15:00:00.000Z",
+        "measurementNote": "Measured exclusively (one model resident, desktop and browser left running, which is normal Mushin operation) on the qwen38-27b-interactive profile: 60 of 65 blocks on device, 8192 context, q4_0 K and V, 8 threads, 16 batch threads, flash attention on. Decode is llama.cpp's own timing from the instrumented lifecycle swap (cold 17.09, warm 17.06 tok/s). Prefill is from the placement sweep at the same 60-block placement, 16384 context, on a 7548-token prompt; a same-context 8192 prefill figure was not separately taken and is not invented here. Cold load is the wall time from unit start to /health answering, with SIGINT shutdown in effect. Full offload is impossible: ngl 999 fails CUDA buffer allocation, and 62 blocks leaves only ~126 MiB of VRAM headroom.",
+        "coldLoadSeconds": 3.09,
+        "vramMiB": 10870,
+        "hostRssGiB": 2.12,
+        "decodeTokensPerSecond": 17.06,
+        "prefillTokensPerSecond": 940.0
+      }
+    },
+    {
+      "modelId": "qwen38-27b.q4-k-m",
+      "displayName": "Qwen3.8 27B (Q4_K_M)",
+      "digest": "sha256:e103abf9d914d1d7b2f2592f055f2759a71195c350a01c135f71aaae86bca52b",
+      "artifactPath": "/home/zen/models/Qwen3.8-27B-Q4_K_M.gguf",
+      "tokenizerCanaryPath": "canaries/qwen38-27b.q4-k-m.canary.json",
+      "runtimeAlias": "qwen38-27b.q4-k-m",
+      "backend": "primary",
+      "provenance": {
+        "baseModel": "Qwen/Qwen3.8-27B",
+        "baseModelRevision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+        "ggufPublisher": "bartowski/Qwen3.8-27B-GGUF",
+        "ggufRepoRevision": "f0eec4a4bb4975114a030d048952d83c0a53c034",
+        "license": "apache-2.0",
+        "imatrix": "Qwen3.8-27B-imatrix.gguf (bartowski; calibration-v6.txt published in-repo)",
+        "verifiedAt": "2026-08-22",
+        "digestVerification": "sha256 verified three times: after download, after atomic placement, and on re-hash in place. HTTP x-linked-etag from the pinned GGUF revision matched all three."
+      },
+      "facts": {
+        "format": "gguf",
+        "architecture": "qwen35",
+        "quantization": "Q4_K_M",
+        "ggufFileType": 15,
+        "sizeBytes": 17772537440,
+        "parameterCount": 27320697856,
+        "activeParameterCount": 27320697856,
+        "expertCount": null,
+        "expertUsedCount": null,
+        "blockCount": 65,
+        "contextTrainTokens": 262144,
+        "vocabSize": 248320,
+        "embeddingLength": 5120,
+        "attentionHeadCount": 24,
+        "attentionHeadCountKv": 4,
+        "tokenizerFamily": "gpt2",
+        "tokenizerPretokenizer": "qwen35",
+        "tokenizerMetadataDigest": "sha256:73e1fde6afecb78e18879391240922de94331a3516b43815d6c4897b237a425f",
+        "chatTemplateDigest": "sha256:c3cf9e34abf4f9e36c2d72165aa9c132d3e2a725b6c2586aaa3a8af9d7a81041"
+      },
+      "capabilities": {
+        "chat": true,
+        "completion": true,
+        "tools": true,
+        "vision": false,
+        "audio": false,
+        "embedding": false,
+        "reasoningEffort": true
+      },
+      "qualification": {
+        "status": "INSTALLED_UNQUALIFIED",
+        "authority": "none",
+        "evidenceRef": null,
+        "qualifiedTaskClasses": [],
+        "note": "Installed and served as an appliance model. Luak has issued no qualification evidence for this artifact. Bokahli makes NO claim that it is fit for any task class. Measured on Mushin against the resident Qwen3.5-35B-A3B Q2_K control over 18 bounded fixtures: it matched the control's grounding and schema compliance ONLY under constrained (JSON-schema) generation, and was 2.4x slower per task. Unconstrained it emitted citations as bare strings rather than {sourceId, quote} objects and lost 4 of 18. No task class showed a measured advantage over the control. THIS ARTIFACT HAS NO PRODUCTION PROFILE. It is catalogued because it is installed and an operator asking what is on disk deserves a true answer, not because it is a candidate. At its maximum placement (60 of 65 blocks fit; 42 measured stable) it ran at 7.3 tok/s against IQ3_XXS's 20.0 on the same host and showed no quality advantage over it. It is retained for the expanded quality campaign and must not be selected by AUTO."
+      },
+      "operational": {
+        "servedContextTokens": 8192,
+        "maxConcurrentRequests": 1,
+        "measuredAt": "2026-08-22T15:24:00.000Z",
+        "measurementNote": "Measured once, to decide whether the higher-quality quantisation earned a profile. It did not, so these numbers exist to justify that refusal rather than to support a deployment. 42 of 65 blocks on device (44 loads its weights and then fails compute-buffer allocation by 215 MiB; a smaller micro-batch does not rescue it), 8192 context, q4_0 K and V, 8 threads. Same host, same fixtures, same exclusive conditions as the IQ3_XXS row. NO PRODUCTION PROFILE EXISTS FOR THIS ARTIFACT and none should be created from these numbers.",
+        "coldLoadSeconds": 7.0,
+        "vramMiB": 10942,
+        "hostRssGiB": 6.85,
+        "decodeTokensPerSecond": 7.28,
+        "prefillTokensPerSecond": 432.8
       }
     }
   ]
