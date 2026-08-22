@@ -1,0 +1,60 @@
+{
+  "profilesVersion": 1,
+  "note": "Operational profiles are measured configurations, not suggestions. Each is bound to one artifact digest, and its minFreeVramMiB comes from what the placement campaign observed free on this host with the desktop and browser running \u2014 which is the state Mushin is actually in. A profile that does not fit is refused; it is never shrunk to fit, because a smaller placement is a different profile with different numbers.",
+  "profiles": [
+    {
+      "profileId": "qwen38-27b-interactive",
+      "modelId": "qwen38-27b.iq3-xxs",
+      "artifactDigest": "sha256:3b058d6548f216f06ccaf8c6caf8019db23a8ec5a973ec6e84b525255a0ea481",
+      "contextTokens": 8192,
+      "gpuLayers": 60,
+      "cacheTypeK": "q4_0",
+      "cacheTypeV": "q4_0",
+      "threads": 8,
+      "threadsBatch": 16,
+      "batchSize": null,
+      "ubatchSize": null,
+      "parallelSlots": 1,
+      "flashAttn": "on",
+      "reasoning": "off",
+      "minFreeVramMiB": 11000,
+      "intendedTaskClasses": [
+        "test_log_triage",
+        "repo_recon_bounded",
+        "cited_extraction",
+        "diff_summarization",
+        "structured_classification"
+      ],
+      "constrainedOutputRequired": true,
+      "supervisedOnly": true,
+      "autonomousPromotionAllowed": false,
+      "note": "Supervised bounded analysis. 17.06 tok/s decode, ~0.30s warm TTFT, 10870 MiB held on device at 60 of 65 blocks. minFreeVramMiB is the 10870 MiB the process holds plus the ~479 MiB of CUDA context that nvidia-smi does not attribute to it; the campaign measured only 478 MiB genuinely free at this placement, so there is no room for a second resident model and very little for a browser that suddenly wants more. Threads are 8 rather than 22 because only ~5 blocks run on CPU and thread synchronisation dominates past that: 22 threads measured 17.08 tok/s against 8 threads' 20.58 at the same placement. CONSTRAINED OUTPUT IS REQUIRED: unconstrained, this artifact emitted citations as bare strings instead of {sourceId, quote} objects on 3 of 4 structured fixtures and lost 4 of 18 across the expanded set. Under a JSON schema it matched the control exactly. minFreeVramMiB is the 10870 MiB this placement was measured to hold plus a 130 MiB margin \u2014 the size of the desktop's own GPU footprint, used here as the cost of one more thing appearing mid-run. It is NOT inflated by a separate CUDA-context allowance: free VRAM went 11356 -> 478 MiB across the load while the process reported 10870, so consumption is what the process reports and an earlier 479 MiB 'unattributed overhead' in this file was an arithmetic error, not an observation."
+    },
+    {
+      "profileId": "qwen38-27b-analysis",
+      "modelId": "qwen38-27b.iq3-xxs",
+      "artifactDigest": "sha256:3b058d6548f216f06ccaf8c6caf8019db23a8ec5a973ec6e84b525255a0ea481",
+      "contextTokens": 16384,
+      "gpuLayers": 60,
+      "cacheTypeK": "q4_0",
+      "cacheTypeV": "q4_0",
+      "threads": 8,
+      "threadsBatch": 8,
+      "batchSize": null,
+      "ubatchSize": null,
+      "parallelSlots": 1,
+      "flashAttn": "on",
+      "reasoning": "off",
+      "minFreeVramMiB": 11144,
+      "intendedTaskClasses": [
+        "repo_recon_bounded",
+        "cited_extraction",
+        "diff_summarization"
+      ],
+      "constrainedOutputRequired": true,
+      "supervisedOnly": true,
+      "autonomousPromotionAllowed": false,
+      "note": "Supervised background analysis where the packet does not fit in 8192. 17.07 tok/s decode at 1K prompt, 16.18 at 8K, 8.03s TTFT on a 7548-token prompt, 11014 MiB held at the same 60 of 65 blocks. The extra 4096 tokens of q4_0 KV cost ~144 MiB against the interactive profile and buy no speed, so this is the profile to pick when context is the constraint and never otherwise. 32768 is deliberately absent: it was not measured, and at 256 KiB per token of f16 KV this model's cache is expensive enough that the placement would have to drop below 60 blocks to fit it. minFreeVramMiB is the 11014 MiB measured at 16384 context plus the same 130 MiB margin. Only ~342 MiB is genuinely spare at this placement on a 12282 MiB card, which is the reason there is no 32768 profile and no second resident model."
+    }
+  ]
+}
